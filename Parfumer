@@ -1,0 +1,121 @@
+import telebot
+from telebot import types
+
+# Ваш токен API, полученный от BotFather
+API_TOKEN = '8045476773:AAHQ6sNzjGVlRdWHg6UE-7YYI-vnZDUQvUE'
+
+# Инициализация бота
+bot = telebot.TeleBot(API_TOKEN)
+
+# Словарь для хранения данных пользователей
+user_data = {}
+
+# Список вопросов для опроса
+questions = [
+    "Какой ваш любимый вкус?",
+    "Какой ваш любимый запах?",
+    "Какой аромат вы предпочитаете: цветочный, древесный, цитрусовый, пряный или другой?",
+    "Какие цветы вам нравятся больше всего: розы, жасмин, фиалка, ландыш или другие?",
+    "Хотите ли вы, чтобы выбранный вами цветок был доминирующей нотой, или предпочли бы сочетание с другими цветами?",
+    "Предпочитаете ли вы лёгкий дневной аромат или насыщенный вечерний?",
+    "Какой сезон вы считаете своим любимым: весна, лето, осень или зима?",
+    "Хотите добавить к вашему аромату древесные или мускусные ноты для придания глубины?",
+    "Предпочитаете ли вы аромат, который держится весь день, или лёгкий шлейф, который постепенно исчезает?",
+    "Какой формат выпуска вам предпочтителен: спрей, духи, масло или роликовый парфюм?",
+    "Как насчёт упаковки? Предпочитаете минималистичный дизайн или что-то более яркое и выразительное?",
+    "Есть ли у вас особые пожелания или предпочтения, которые мы ещё не обсудили?"
+]
+
+# Начальная команда /start
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "Здравствуйте! Я помогу вам собрать необходимые данные. Давайте начнем.")
+    ask_name(message)
+
+# Запрашиваем имя пользователя
+def ask_name(message):
+    msg = bot.send_message(message.chat.id, "Как я могу к вам обращаться?")
+    bot.register_next_step_handler(msg, process_name)
+
+# Обрабатываем введенное имя
+def process_name(message):
+    user_data['name'] = message.text
+    ask_phone_number(message)
+
+# Запрашиваем номер телефона
+def ask_phone_number(message):
+    markup = types.ForceReply(selective=False)
+    msg = bot.send_message(message.chat.id, "Укажите, пожалуйста, ваш контактный номер телефона:", reply_markup=markup)
+    bot.register_next_step_handler(msg, process_phone_number)
+
+# Обрабатываем введённый номер телефона
+def process_phone_number(message):
+    if not message.text.isdigit() or len(message.text) != 11:
+        msg = bot.send_message(message.chat.id, "Номер телефона должен содержать 11 цифр. Попробуйте еще раз:")
+        bot.register_next_step_handler(msg, process_phone_number)
+        return
+    
+    user_data['phone'] = message.text
+    ask_email(message)
+
+# Запрашиваем email
+def ask_email(message):
+    markup = types.ForceReply(selective=False)
+    msg = bot.send_message(message.chat.id, "Теперь укажите ваш email:", reply_markup=markup)
+    bot.register_next_step_handler(msg, process_email)
+
+# Обрабатываем введённый email
+def process_email(message):
+    if '@' not in message.text:
+        msg = bot.send_message(message.chat.id, "Email введен неверно. Попробуйте еще раз:")
+        bot.register_next_step_handler(msg, process_email)
+        return
+    
+    user_data['email'] = message.text
+    finish_registration(message)
+
+# Завершаем регистрацию и предоставляем выбор
+def finish_registration(message):
+    keyboard = types.InlineKeyboardMarkup()
+    button_1 = types.InlineKeyboardButton(text="Завершить работу", callback_data='finish')
+    button_2 = types.InlineKeyboardButton(text="Пройти опрос", callback_data='survey')
+    keyboard.add(button_1, button_2)
+    bot.send_message(message.chat.id, "Регистрация завершена! Что желаете сделать дальше?", reply_markup=keyboard)
+
+# Обработчик нажатия кнопок
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    if call.data == 'finish':
+        bot.answer_callback_query(call.id, text="Анкета отправлена администратору. До свидания!")
+        send_survey_to_admin(call.message)
+    elif call.data == 'survey':
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
+                              text=f"Прекрасно! Давайте перейдем к опросу. Первый вопрос:",
+                              reply_markup=None)
+        start_survey(call.message, 0)
+
+# Отправляем анкету администратору
+def send_survey_to_admin(message):
+    bot.send_message(message.chat.id, "До свидания! Ваша анкета была отправлена администратору.")
+    bot.send_message(CHAT_ID_ADMIN, f"Новая анкета от {user_data['name']} ({user_data['phone']}, {user_data['email']})")
+
+# Начинаем опрос
+def start_survey(message, question_index):
+    if question_index >= len(questions):
+        bot.send_message(message.chat.id, "Опрос завершён! Спасибо за участие.")
+        send_survey_to_admin(message)
+        return
+    
+    bot.send_message(message.chat.id, questions[question_index])
+    bot.register_next_step_handler(message, lambda m: save_answer(m, question_index))
+
+# Сохраняем ответ на вопрос
+def save_answer(message, question_index):
+    answer = message.text
+    user_data[f'answer_{question_index + 1}'] = answer
+    next_question_index = question_index + 1
+    start_survey(message, next_question_index)
+
+# Запускаем бота
+if __name__ == '__main__':
+    bot.polling()
