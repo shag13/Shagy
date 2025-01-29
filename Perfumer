@@ -3,7 +3,7 @@ from telebot import types
 import os
 from dotenv import load_dotenv
 
-load_dotenv("1.env")
+load_dotenv()
 
 API_TOKEN = os.getenv("API_TOKEN")
 CHAT_ID_ADMIN = os.getenv("CHAT_ID_ADMIN")
