@@ -3,7 +3,7 @@ from telebot import types
 import json
 import os
 
-bot = telebot.TeleBot('8120084632:AAH2ctlcFqCVwJmlkoIBanqvTj0VK4OKAvc')
+bot = telebot.TeleBot('TOKEN')
 
 # Загрузка данных из файла (если он существует)
 def load_data():
