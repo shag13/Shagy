@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 load_dotenv()
 # Замените 'YOUR_BOT_TOKEN' на токен вашего бота
 bot = telebot.TeleBot(os.getenv('TOKEN_RESUME'))
-ADMIN_ID = os.getenv('ADMIN_ID')
+ADMIN_ID = os.getenv("ADMIN_ID")
 
 # Подключение к базе данных SQLite
 conn = sqlite3.connect('reminders.db', check_same_thread=False)
