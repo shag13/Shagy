@@ -1,0 +1,254 @@
+from dotenv import load_dotenv
+import telebot
+from telebot import types
+import qrcode
+import io
+
+load_dotenv()
+
+# Инициализация бота
+bot = telebot.TeleBot(os.getenv('TOKEN_PEKARNYA'))
+
+# Словарь для хранения корзин пользователей
+user_carts = {}
+user_bonuses = {}
+
+# Словарь для хранения выбранных товаров (временное хранение)
+selected_items = {}
+
+# Приветственное сообщение
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.from_user.id
+    if user_id not in user_carts:
+        user_carts[user_id] = {}
+        user_bonuses[user_id] = 100  # Начальные бонусы
+    welcome_text = (
+        "🍰 *Добро пожаловать в нашу пекарню!* 🥐\n\n"
+        "Мы рады приветствовать вас в нашем уютном уголке свежей выпечки и вкуснейших десертов. "
+        "Здесь вы найдете всё, чтобы порадовать себя и своих близких!\n\n"
+        "Выберите пункт меню, чтобы начать:"
+    )
+    bot.reply_to(message, welcome_text, parse_mode="Markdown")
+    main_menu(message)  # Показываем главное меню после приветствия
+
+# Главное меню
+def main_menu(message):
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    itembtn1 = types.KeyboardButton('🍞 Выпечка')
+    itembtn2 = types.KeyboardButton('🍰 Десерты')
+    itembtn3 = types.KeyboardButton('☕ Напитки')
+    itembtn4 = types.KeyboardButton('🛒 Корзина')
+    itembtn5 = types.KeyboardButton('🎁 Бонусы')
+    itembtn6 = types.KeyboardButton('📍 Адреса')
+    itembtn7 = types.KeyboardButton('🔗 Мои рефералы')
+    itembtn8 = types.KeyboardButton('🤖 ЗАКАЗАТЬ БОТА')
+    markup.add(itembtn1, itembtn2, itembtn3, itembtn4, itembtn5, itembtn6, itembtn7, itembtn8)
+    bot.send_message(message.chat.id, "Выберите пункт меню:", reply_markup=markup)
+
+# Обработка текстовых сообщений
+@bot.message_handler(func=lambda message: True)
+def handle_text(message):
+    if message.text == "🍞 Выпечка":
+        handle_bakery(message)
+    elif message.text == "🍰 Десерты":
+        handle_desserts(message)
+    elif message.text == "☕ Напитки":
+        handle_drinks(message)
+    elif message.text == "🛒 Корзина":
+        handle_cart(message)
+    elif message.text == "🎁 Бонусы":
+        handle_bonuses(message)
+    elif message.text == "📍 Адреса":
+        handle_addresses(message)
+    elif message.text == "🔗 Мои рефералы":
+        handle_referral_link(message)
+    elif message.text == "🤖 ЗАКАЗАТЬ БОТА":
+        handle_order_bot(message)
+    elif message.text.isdigit():  # Если пользователь ввел число
+        handle_quantity(message)
+    else:
+        bot.reply_to(message, "Пожалуйста, выберите пункт меню.")
+
+# Обработка кнопки "🍞 Выпечка"
+def handle_bakery(message):
+    bakery_text = (
+        "🍞 *Наша выпечка:*\n\n"
+        "1. 🥐 Круассан сладкий - 100р\n"
+        "   Нежный и хрустящий круассан с начинкой из шоколада или джема.\n\n"
+        "2. 🥩 Круассан с мясом - 120р\n"
+        "   Сытный круассан с начинкой из сочного мяса и специй.\n\n"
+        "3. 🌭 Сосиска в тесте - 90р\n"
+        "   Аппетитная сосиска, запеченная в слоеном тесте.\n\n"
+        "4. 🥔 Булочка с картошкой - 70р\n"
+        "   Мягкая булочка с начинкой из картофеля и зелени.\n\n"
+        "5. 🥬 Пирожок с капустой - 10р\n"
+        "   Пирожок с тушеной капустой, идеальный для перекуса.\n\n"
+        "Выберите выпечку:"
+    )
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🥐 Круассан сладкий - 100р", callback_data="Круассан сладкий"))
+    markup.add(types.InlineKeyboardButton("🥩 Круассан с мясом - 120р", callback_data="Круассан с мясом"))
+    markup.add(types.InlineKeyboardButton("🌭 Сосиска в тесте - 90р", callback_data="Сосиска в тесте"))
+    markup.add(types.InlineKeyboardButton("🥔 Булочка с картошкой - 70р", callback_data="Булочка с картошкой"))
+    markup.add(types.InlineKeyboardButton("🥬 Пирожок с капустой - 10р", callback_data="Пирожок с капустой"))
+    bot.send_message(message.chat.id, bakery_text, reply_markup=markup, parse_mode="Markdown")
+
+# Обработка кнопки "🍰 Десерты"
+def handle_desserts(message):
+    desserts_text = (
+        "🍰 *Наши десерты:*\n\n"
+        "1. 🍰 Чизкейк - 120р\n"
+        "   Нежный чизкейк с ванильным вкусом и хрустящей основой.\n\n"
+        "2. 🎂 Кусок торта - 150р\n"
+        "   Праздничный кусок торта с шоколадным или фруктовым вкусом.\n\n"
+        "3. 🧁 Пироженка - 130р\n"
+        "   Мини-пирожное с кремовой начинкой и ягодным топпингом.\n\n"
+        "4. 🌈 Кусочек радуги - 1000р\n"
+        "   Эксклюзивный десерт с яркими слоями и невероятным вкусом.\n\n"
+        "Выберите десерт:"
+    )
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🍰 Чизкейк - 120р", callback_data="Чизкейк"))
+    markup.add(types.InlineKeyboardButton("🎂 Кусок торта - 150р", callback_data="Кусок торта"))
+    markup.add(types.InlineKeyboardButton("🧁 Пироженка - 130р", callback_data="Пироженка"))
+    markup.add(types.InlineKeyboardButton("🌈 Кусочек радуги - 1000р", callback_data="Кусочек радуги"))
+    bot.send_message(message.chat.id, desserts_text, reply_markup=markup, parse_mode="Markdown")
+
+# Обработка кнопки "☕ Напитки"
+def handle_drinks(message):
+    drinks_text = (
+        "☕ *Наши напитки:*\n\n"
+        "1. ☕ Кофе - 130р\n"
+        "   Ароматный кофе, приготовленный из свежеобжаренных зерен.\n\n"
+        "2. 🍵 Чай - 80р\n"
+        "   Традиционный чай с выбором черного, зеленого или травяного варианта.\n\n"
+        "3. 🥤 Милкшейк - 190р\n"
+        "   Освежающий милкшейк с ванильным, шоколадным или клубничным вкусом.\n\n"
+        "4. 💧 Святая вода - 20р\n"
+        "   Освященная вода для укрепления духа и тела.\n\n"
+        "Выберите напиток:"
+    )
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("☕ Кофе - 130р", callback_data="Кофе"))
+    markup.add(types.InlineKeyboardButton("🍵 Чай - 80р", callback_data="Чай"))
+    markup.add(types.InlineKeyboardButton("🥤 Милкшейк - 190р", callback_data="Милкшейк"))
+    markup.add(types.InlineKeyboardButton("💧 Святая вода - 20р", callback_data="Святая вода"))
+    bot.send_message(message.chat.id, drinks_text, reply_markup=markup, parse_mode="Markdown")
+
+# Обработка кнопки "🛒 Корзина"
+def handle_cart(message):
+    user_id = message.from_user.id
+    cart = user_carts.get(user_id, {})
+    if not cart:
+        bot.send_message(message.chat.id, "🛒 Ваша корзина пуста.")
+    else:
+        total = 0
+        cart_text = "🛒 *Ваша корзина:*\n\n"
+        for item, quantity in cart.items():
+            price = get_price(item)
+            total += price * quantity
+            cart_text += f"{item} - {quantity}шт. ({price * quantity}р)\n"
+        cart_text += f"\n💵 *Общая сумма:* {total}р"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("❌ Очистить корзину", callback_data="clear_cart"))
+        markup.add(types.InlineKeyboardButton("💳 Функционал оплаты", callback_data="payment_functionality"))
+        bot.send_message(message.chat.id, cart_text, reply_markup=markup, parse_mode="Markdown")
+
+# Обработка кнопки "🎁 Бонусы"
+def handle_bonuses(message):
+    user_id = message.from_user.id
+    bonuses = user_bonuses.get(user_id, 100)
+    bonuses_text = (
+        "🎁 *Ваши бонусы:*\n\n"
+        f"У вас накоплено: *{bonuses} баллов*.\n\n"
+        "💡 *Правила бонусной программы:*\n"
+        "1. За каждую покупку вы получаете 10 баллов.\n"
+        "2. 100 баллов = 10 рублей скидки.\n"
+        "3. Баллы можно использовать для оплаты заказов."
+    )
+    bot.send_message(message.chat.id, bonuses_text, parse_mode="Markdown")
+
+# Обработка кнопки "📍 Адреса"
+def handle_addresses(message):
+    addresses_text = (
+        "📍 *Наши пекарни:*\n\n"
+        "1. 🏠 Улица Пушкина, дом 10\n"
+        "2. 🏠 Улица Лермонтова, дом 15\n"
+        "3. 🏠 Улица Гоголя, дом 20\n\n"
+        "🕒 Часы работы: с 8:00 до 22:00 ежедневно."
+    )
+    bot.send_message(message.chat.id, addresses_text, parse_mode="Markdown")
+
+# Обработка кнопки "🔗 Моя ссылка"
+def handle_referral_link(message):
+    user_id = message.from_user.id
+    referral_link = f"https://t.me/your_bot_username?start={user_id}"
+    bot.send_message(message.chat.id, f"🔗 *Ваша реферальная ссылка:*\n{referral_link}", parse_mode="Markdown")
+
+# Обработка кнопки "🤖 ЗАКАЗАТЬ БОТА"
+def handle_order_bot(message):
+    bot.send_message(message.chat.id, "🤖 По всем вопросам заказа бота обращайтесь в телеграм: @Shag13888")
+
+# Обработка inline-кнопок
+@bot.callback_query_handler(func=lambda call: True)
+def callback_inline(call):
+    user_id = call.from_user.id
+    
+    # Обработка очистки корзины
+    if call.data == "clear_cart":
+        user_carts[user_id] = {}
+        bot.answer_callback_query(call.id, "Корзина очищена")
+        bot.delete_message(call.message.chat.id, call.message.message_id)  # Удаляем сообщение с кнопками
+        handle_cart(call.message)  # Показываем обновлённую корзину
+    
+    # Обработка функционала оплаты
+    elif call.data == "payment_functionality":
+        bot.send_message(call.message.chat.id, "💳 Можно реализовать любой функционал оплаты.")
+        bot.answer_callback_query(call.id)
+    
+    # Обработка выбора товара (всё остальное)
+    else:
+        item = call.data
+        selected_items[user_id] = item
+        bot.send_message(call.message.chat.id, "Введите количество:")
+        bot.answer_callback_query(call.id)
+
+# Обработка ввода количества
+def handle_quantity(message):
+    user_id = message.from_user.id
+    if user_id in selected_items:
+        item = selected_items[user_id]
+        quantity = int(message.text)
+        if quantity > 0:
+            user_carts[user_id][item] = user_carts[user_id].get(item, 0) + quantity
+            price = get_price(item)
+            total = price * quantity
+            bot.send_message(message.chat.id, f"✅ Добавлено: {item} - {quantity}шт. ({total}р)")
+            del selected_items[user_id]  # Удаляем временное хранение
+        else:
+            bot.send_message(message.chat.id, "❌ Количество должно быть больше 0.")
+    else:
+        bot.send_message(message.chat.id, "❌ Ошибка: товар не выбран.")
+
+# Функция для получения цены товара
+def get_price(item):
+    prices = {
+        "Круассан сладкий": 100,
+        "Круассан с мясом": 120,
+        "Сосиска в тесте": 90,
+        "Булочка с картошкой": 70,
+        "Пирожок с капустой": 10,
+        "Чизкейк": 120,
+        "Кусок торта": 150,
+        "Пироженка": 130,
+        "Кусочек радуги": 1000,
+        "Кофе": 130,
+        "Чай": 80,
+        "Милкшейк": 190,
+        "Святая вода": 20,
+    }
+    return prices.get(item, 0)
+
+# Запуск бота
+bot.polling(none_stop=True)
