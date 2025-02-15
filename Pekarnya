@@ -3,6 +3,7 @@ import telebot
 from telebot import types
 import qrcode
 import io
+import os
 
 load_dotenv()
 
