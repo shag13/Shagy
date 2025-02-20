@@ -168,6 +168,11 @@ def admin_command_1(message):
     else:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
 
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    file_id = message.photo[-1].file_id  # Получаем file_id последнего (самого большого) фото
+    bot.reply_to(message, f"File ID: {file_id}")
+
 @bot.message_handler(commands=['2'])
 def admin_command_2(message):
     if message.from_user.id in ADMIN_IDS:
