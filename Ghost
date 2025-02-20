@@ -1,15 +1,4 @@
-from dotenv import load_dotenv
-import telebot
-import random
-import time
-import threading
-from datetime import datetime, timedelta
-import pytz
-import schedule
-from collections import deque
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import sqlite3
-import os
+
 
 load_dotenv()
 # Инициализация бота
