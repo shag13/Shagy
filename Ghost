@@ -1,4 +1,14 @@
-
+from dotenv import load_dotenv
+import telebot
+import random
+import time
+import threading
+from datetime import datetime, timedelta
+import pytz
+import schedule
+from collections import deque
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import sqlite3
 
 load_dotenv()
 # Инициализация бота
@@ -362,7 +372,7 @@ def respond_to_bones(message):
     msg = bot.reply_to(message, random.choice(bones_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'страх' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_2(message))
+@bot.message_handler(func=lambda message: 'страх' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_fear(message):
     msg = bot.reply_to(message, random.choice(fear_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
@@ -444,6 +454,9 @@ def track_messages(message):
     if message.chat.id == CHAT_ID and message.from_user.id != BOT_ID:
         if not message.text.startswith('/') and not is_admin_command_5(message):
             message_times.append(datetime.now())
+
+def is_admin_command_5(message):
+    return message.text.startswith('/5')
             
 # Запуск бота и планировщика
 if __name__ == '__main__':
