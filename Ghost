@@ -444,10 +444,19 @@ def admin_command_1(message):
 def admin_command_2(message):
     if message.from_user.id in ADMIN_IDS:
         try:
-            msg = message.text.split(' ', 1)[1]
-            bot.send_message(CHAT_ID, msg)
+            # Разделяем команду на file_id и текст
+            parts = message.text.split(' ', 2)
+            if len(parts) < 3:
+                bot.reply_to(message, "Пожалуйста, введите file_id и текст после команды /2.")
+                return
+            
+            file_id = parts[1]
+            text = parts[2]
+            
+            # Отправляем фото с текстом
+            bot.send_photo(CHAT_ID, file_id, caption=text)
         except IndexError:
-            bot.reply_to(message, "Пожалуйста, введите текст после команды /2.")
+            bot.reply_to(message, "Пожалуйста, введите file_id и текст после команды /2.")
     else:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
         
