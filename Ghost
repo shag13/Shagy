@@ -13,7 +13,7 @@ import sqlite3
 load_dotenv()
 # Инициализация бота
 bot = telebot.TeleBot(os.getenv('TOKEN_GHOST'))
-ADMIN_ID = os.getenv("ADMIN_ID")
+ADMIN_IDS = os.getenv("ADMIN_IDS")
 CHAT_ID = os.getenv("CHAT_ID")
 BOT_ID = bot.get_me().id
 
@@ -418,7 +418,7 @@ def scare_everyone(message):
 
 @bot.message_handler(commands=['отправить_сообщение'])
 def send_message_as_bot(message):
-    if message.from_user.id in ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         try:
             msg = message.text.split(' ', 1)[1]
             bot.send_message(CHAT_ID, msg)
@@ -434,14 +434,14 @@ def tell_ghost_story(message):
 # Новые команды для админа
 @bot.message_handler(commands=['1'])
 def admin_command_1(message):
-    if message.from_user.id in ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         bot.send_message(CHAT_ID, "Страшно? Обосрались?")
     else:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
 
 @bot.message_handler(commands=['2'])
 def admin_command_2(message):
-    if message.from_user.id in ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         try:
             msg = message.text.split(' ', 1)[1]
             bot.send_message(CHAT_ID, msg)
@@ -452,7 +452,7 @@ def admin_command_2(message):
         
 @bot.message_handler(commands=['3'])
 def admin_command_3(message):
-    if message.from_user.id in ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         try:
             msg = message.text.split(' ', 1)[1]
             for user_id in get_red_pill_users():
