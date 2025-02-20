@@ -1,0 +1,568 @@
+from dotenv import load_dotenv
+import telebot
+from telebot import types
+import json
+import os
+from collections import defaultdict
+
+load_dotenv()
+bot = telebot.TeleBot(os.getenv('TOKEN_PARFUM'))
+ADMIN_ID = os.getenv("ADMIN_ID")
+
+ADMIN_ID = 103329587
+DATA_FILE = "user_data.json"
+PERFUMES_FILE = "perfumes.json"
+
+# Хранилище данных
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        user_data = defaultdict(lambda: {
+            'test_in_progress': False,
+            'test_answers': [],
+            'current_question': 0,
+            'cart': [],
+            'orders': {},
+            'order_counter': 1,
+            'recommendations': []
+        }, json.load(f))
+else:
+    user_data = defaultdict(lambda: {
+        'test_in_progress': False,
+        'test_answers': [],
+        'current_question': 0,
+        'cart': [],
+        'orders': {},
+        'order_counter': 1,
+        'recommendations': []
+    })
+
+def save_data():
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(dict(user_data), f, ensure_ascii=False, indent=2)
+        
+def initialize_user(chat_id):
+    if 'order_counter' not in user_data[chat_id]:
+        user_data[chat_id]['order_counter'] = 1
+    if 'cart' not in user_data[chat_id]:
+        user_data[chat_id]['cart'] = []
+    if 'orders' not in user_data[chat_id]:
+        user_data[chat_id]['orders'] = {}
+    if 'recommendations' not in user_data[chat_id]:
+        user_data[chat_id]['recommendations'] = []
+
+# Пример данных о парфюмах
+if os.path.exists(PERFUMES_FILE):
+    with open(PERFUMES_FILE, "r", encoding="utf-8") as f:
+        perfumes = json.load(f)
+else:
+    perfumes = [
+        {"id": 1, "name": "Chanel №5", "description": "Классический женский аромат с нотами иланг-иланга и жасмина 🌸"},
+        {"id": 2, "name": "Dior Sauvage", "description": "Свежий мужской аромат с аккордами бергамота и амброксана 🏔"},
+        {"id": 3, "name": "YSL Black Opium", "description": "Соблазнительный аромат с кофе и ванилью ☕️"},
+        {"id": 4, "name": "Creed Aventus", "description": "Элитный мужской аромат с ананасом и березой 🍍"}
+    ]
+
+def save_perfumes():
+    with open(PERFUMES_FILE, "w", encoding="utf-8") as f:
+        json.dump(perfumes, f, ensure_ascii=False, indent=2)
+
+volumes = ["50_мл", "100_мл", "150_мл", "200_мл"]
+
+questions = [
+    {
+        'text': "🌸 *Ароматы могут быть разными...*\nКакой тип аромата ты предпочитаешь?",
+        'options': [
+            "Цветочный 🌹 (розы, жасмин, лаванда)",
+            "Древесный 🌲 (сандал, кедр, пачули)",
+            "Цитрусовый 🍊 (лимон, апельсин, бергамот)",
+            "Восточный 🕌 (ваниль, амбра, мускус)",
+            "Свежий/морской 🌊 (морской бриз, зелень)",
+            "Сладкий/ванильный 🍮 (ваниль, карамель)",
+            "Не знаю, хочу необычное ✨"
+        ]
+    },
+    {
+        'text': "💫 *Характер аромата:*\nКакой тебе ближе?",
+        'options': [
+            "Легкий, едва уловимый ☁️ (повседневный)",
+            "Средний, заметный 📌 (работа/встречи)",
+            "Насыщенный, стойкий 🌑 (вечер/особые случаи)",
+            "Универсальный 🌟 (для любого случая)"
+        ]
+    },
+    {
+        'text': "🌍 *Для какого сезона ищешь парфюм?*",
+        'options': [
+            "Лето 🌞 (свежие ароматы)",
+            "Зима ❄️ (теплые ароматы)",
+            "Весна/осень 🍂 (универсальные)",
+            "Круглый год 🗓"
+        ]
+    },
+    {
+        'text': "🔮 *Выбери объем флакона:*",
+        'options': [
+            "10 мл 💎 (миниатюрный)",
+            "30 мл 📌 (стандартный)",
+            "50 мл 🧪 (для экспериментов)",
+            "100 мл 🏆 (максимальный)"
+        ]
+    },
+    {
+        'text': "🎵 *Любимые нотки в аромате:*",
+        'options': [
+            "Ваниль 🍦",
+            "Жасмин 🌼",
+            "Сандал🪵",
+            "Бергамот 🍊",
+            "Мускус 🦌",
+            "Пропустить ❌"
+        ]
+    },
+    {
+        'text': "💃 *Какой образ хочешь передать?*",
+        'options': [
+            "Утонченность и элегантность 👑",
+            "Смелость и уверенность 🦁",
+            "Нежность и романтичность 💐",
+            "Энергию и свежесть ⚡️",
+            "Загадочность и глубину 🌌",
+            "Уют и комфорт 🛋",
+            "Другое ✍️"
+        ]
+    },
+    {
+        'text': "🔄 *Как часто будешь использовать?*",
+        'options': [
+            "Ежедневно 🗓",
+            "Особые случаи 🎉",
+            "Иногда 🌈",
+            "Универсальный ⚖️"
+        ]
+    }
+]
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    initialize_user(message.chat.id)
+    
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("Да ✅", "Нет ❌")
+    if message.from_user.id == ADMIN_ID:
+        markup.add("➕ Добавить товар", "➖ Удалить товар")
+    
+    bot.send_message(
+        message.chat.id,
+        f"👋 Привет, {message.from_user.first_name}!\nХочешь найти свой идеальный аромат?",
+        reply_markup=markup
+    )
+                    
+def generate_recommendations(answers):
+    recommendations = []
+    try:
+        # Проверяем, что answers содержит достаточно элементов
+        if len(answers) >= 7:
+            q1, q2, q3, q4, q5, q6, q7 = answers[:7]  # Берем только первые 7 ответов
+
+            if q1 in [0, 6] or q5 == 1 or q6 == 0:
+                rec = "🌺 *Chanel №5* - Цветочный аромат для утонченных натур"
+                if rec not in recommendations:
+                    recommendations.append(rec)
+
+            if q2 in [0, 3] or q3 == 3 or q7 in [0, 3]:
+                rec = "🌊 *Dior Sauvage* - Универсальный свежий аромат"
+                if rec not in recommendations:
+                    recommendations.append(rec)
+
+            if q1 in [3, 5] or q3 == 1 or q2 == 2:
+                rec = "☕️ *YSL Black Opium* - Сладкий вечерний аромат"
+                if rec not in recommendations:
+                    recommendations.append(rec)
+
+            if q1 == 1 or q6 == 1 or q7 == 1:
+                rec = "🍍 *Creed Aventus* - Статусный древесный аромат"
+                if rec not in recommendations:
+                    recommendations.append(rec)
+
+        return recommendations
+
+    except Exception as e:
+        print(f"Error generating recommendations: {e}")
+        return ["Пока нет рекомендаций 😢 Пройдите тест сначала!"]
+                    
+def start_test(chat_id):
+    user_data[chat_id]['test_in_progress'] = True
+    user_data[chat_id]['current_question'] = 0
+    ask_question(chat_id)
+
+def ask_question(chat_id):
+    question = questions[user_data[chat_id]['current_question']]
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    
+    for i, option in enumerate(question['options']):
+        markup.add(f"{i+1}. {option}")
+        
+    bot.send_message(chat_id, 
+                    f"*Вопрос {user_data[chat_id]['current_question']+1}/{len(questions)}*\n" + 
+                    question['text'], 
+                    parse_mode="Markdown",
+                    reply_markup=markup)
+
+def process_test_step(message):
+    chat_id = message.chat.id
+    if message.text == "Да ✅":
+        start_test(chat_id)
+        save_data()  # Сохраняем данные после начала теста
+    else:
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("Меню 📲")
+        bot.send_message(chat_id, "👉 Нажми 'Меню 📲' для продолжения", reply_markup=markup)
+        
+@bot.message_handler(func=lambda message: message.text == "➕ Добавить товар")
+def add_product(message):
+    if message.from_user.id == ADMIN_ID:
+        msg = bot.send_message(message.chat.id, "Введите название нового парфюма:")
+        bot.register_next_step_handler(msg, process_name_step)
+    else:
+        bot.send_message(message.chat.id, "❌ У вас нет прав для выполнения этой операции.")
+        
+def process_name_step(message):
+    chat_id = message.chat.id
+    name = message.text
+    msg = bot.send_message(chat_id, "Введите описание парфюма:")
+    bot.register_next_step_handler(msg, process_description_step, name)
+
+def process_description_step(message, name):
+    chat_id = message.chat.id
+    description = message.text
+
+    # Создаем новый парфюм
+    new_perfume = {
+        "id": len(perfumes) + 1,  # Уникальный ID
+        "name": name,
+        "description": description
+    }
+
+    # Добавляем парфюм в список
+    perfumes.append(new_perfume)
+    save_perfumes()  # Сохраняем данные о парфюмах в файл
+    bot.send_message(chat_id, f"✅ Парфюм '{name}' успешно добавлен!")
+
+    # Показываем главное меню
+    show_main_menu(message)
+
+def process_test_answer(message):
+    chat_id = message.chat.id
+    current = user_data[chat_id]['current_question']
+
+    try:
+        answer = int(message.text.split('.')[0]) - 1
+        user_data[chat_id]['test_answers'].append(answer)
+    except:
+        bot.send_message(chat_id, "⚠️ Пожалуйста, используй кнопки для ответа")
+        return
+
+    if current + 1 < len(questions):
+        user_data[chat_id]['current_question'] += 1
+        ask_question(chat_id)
+    else:
+        # Генерация новых рекомендаций
+        new_recs = generate_recommendations(user_data[chat_id]['test_answers'])
+
+        # Добавляем новые рекомендации к существующим
+        existing_recs = user_data[chat_id].get('recommendations', [])
+        combined_recs = list(set(existing_recs + new_recs))  # Убираем дубли
+
+        user_data[chat_id]['recommendations'] = combined_recs
+        user_data[chat_id]['test_in_progress'] = False
+
+        # Вывод рекомендаций
+        bot.send_message(chat_id,
+                        "🎉 *Тест завершен!* Вот твои рекомендации:\n\n" +
+                        "\n".join([f"➡️ {r}" for r in combined_recs]),
+                        parse_mode="Markdown")
+
+        show_main_menu(message)
+        save_data()
+        
+def show_main_menu(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        types.InlineKeyboardButton("🌟 Рекомендации", callback_data="recommendations"),
+        types.InlineKeyboardButton("🛍 Сделать заказ", callback_data="make_order"),
+        types.InlineKeyboardButton("🔄 Перепройти тест", callback_data="retake_test"),
+        types.InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders"),
+        types.InlineKeyboardButton("🛒 Корзина", callback_data="cart"),
+        types.InlineKeyboardButton("📞 Контакты", callback_data="contacts"),
+        types.InlineKeyboardButton("❓ FAQ", callback_data="faq"),
+        types.InlineKeyboardButton("📝 Отзывы", callback_data="reviews")
+    ]
+    markup.add(*buttons)
+    
+    # Добавляем кнопку меню в реплай-клавиатуру
+    reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    reply_markup.add("Меню 📲")
+    if message.from_user.id == ADMIN_ID:
+        reply_markup.add("➕ Добавить товар", "➖ Удалить товар")  # Добавляем кнопку удаления
+    
+    bot.send_message(message.chat.id, 
+                    "📱 *Главное меню:*\nВыбери раздел:", 
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup)
+    bot.send_message(message.chat.id, 
+                    "👇 Используй кнопки ниже:", 
+                    reply_markup=markup)         
+                    
+@bot.message_handler(func=lambda message: message.text == "➖ Удалить товар" and message.from_user.id == ADMIN_ID)
+def delete_product_command(message):
+    send_perfumes_to_delete(message.chat.id)
+
+def send_perfumes_to_delete(chat_id):
+    markup = types.InlineKeyboardMarkup()
+    for perfume in perfumes:
+        markup.add(types.InlineKeyboardButton(
+            perfume['name'], 
+            callback_data=f"delete_perfume_{perfume['id']}"
+        ))
+    bot.send_message(chat_id, "Выберите парфюм для удаления:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("delete_perfume_"))
+def delete_perfume(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Нет прав!")
+        return
+    perfume_id = int(call.data.split('_')[2])
+    global perfumes
+    perfumes = [p for p in perfumes if p['id'] != perfume_id]
+    save_perfumes()
+    bot.answer_callback_query(call.id, "✅ Парфюм удален")
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    if call.data == "recommendations":
+        show_recommendations(call)
+    elif call.data == "make_order":
+        send_perfumes(call.message)
+    elif call.data == "retake_test":
+        start_test(call.message.chat.id)
+    elif call.data == "my_orders":
+        show_orders(call.message)
+    elif call.data == "cart":
+        show_cart(call.message)
+    elif call.data == "contacts":
+        show_contacts(call.message)
+    elif call.data == "faq":
+        show_faq(call.message)
+    elif call.data == "reviews":
+        show_reviews(call.message)
+    elif call.data.startswith("add_"):
+        add_to_cart(call)
+    bot.answer_callback_query(call.id)
+
+def show_recommendations(call):
+    try:
+        # Используем user_data вместо recommendations_storage
+        recs = user_data[call.message.chat.id].get('recommendations', ["Пока нет рекомендаций 😢 Пройди тест сначала!"])
+        bot.send_message(call.message.chat.id, 
+                        "🌸 *Твои рекомендации:*\n" + "\n".join(recs), 
+                        parse_mode="Markdown")
+    except Exception as e:
+        print(f"Error showing recommendations: {e}")
+        bot.send_message(call.message.chat.id, "❌ Ошибка при загрузке рекомендаций")
+
+def send_perfumes(message):
+    if not perfumes:
+        bot.send_message(message.chat.id, "🛍 Список парфюмов пуст.")
+        return
+    
+    for perfume in perfumes:
+        text = f"<b>{perfume['name']}</b>\n{perfume['description']}\n\n💵 <i>Цена:</i>\n"
+        text += "\n".join([f"{vol.replace('_', ' ')} - {1000 * (int(vol.split('_')[0]) // 50)} руб." for vol in volumes])
+        
+        markup = types.InlineKeyboardMarkup()
+        buttons = [
+            types.InlineKeyboardButton(
+                text=f"{vol.replace('_', ' ')} ➕",
+                callback_data=f"add_{perfume['id']}_{vol}"
+            ) for vol in volumes
+        ]
+        markup.add(*buttons)
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
+        
+def add_to_cart(call):
+    try:
+        _, perfume_id, volume = call.data.split('_', 2)
+        perfume_id = int(perfume_id)
+        volume = volume.replace('_', ' ')
+
+        perfume = next(p for p in perfumes if p['id'] == perfume_id)
+        user = user_data[call.message.chat.id]
+
+        # Инициализация, если данные отсутствуют
+        initialize_user(call.message.chat.id)
+
+        new_item = {
+            "order_id": user['order_counter'],
+            "name": perfume['name'],
+            "volume": volume,
+            "price": 1000 * (int(volume.split()[0]) // 50),
+            "status": "В корзине"
+        }
+
+        user['cart'].append(new_item)
+        bot.answer_callback_query(call.id, f"✅ Добавлено: {perfume['name']} {volume}")
+        save_data()
+
+    except Exception as e:
+        print(f"Error adding to cart: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка добавления")
+
+def show_cart(message):
+    try:
+        chat_id = message.chat.id
+        items = user_data[chat_id].get('cart', [])
+        
+        if not items:
+            bot.send_message(chat_id, "🛒 Ваша корзина пуста")
+            return
+        
+        text = "🛒 *Ваша корзина:*\n\n"
+        markup = types.InlineKeyboardMarkup()
+        for index, item in enumerate(items):
+            text += f"{index + 1}. {item['name']} ({item['volume']}) - {item['price']} руб.\n"
+            markup.add(types.InlineKeyboardButton(
+                f"❌ Удалить {index + 1}", 
+                callback_data=f"remove_from_cart_{index}"
+            ))
+        
+        total = sum(item['price'] for item in items)
+        text += f"\n💸 Итого: {total} руб."
+        markup.add(types.InlineKeyboardButton("🚀 Оформить заказ", callback_data="confirm_order"))
+        
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+        
+    except Exception as e:
+        print(f"Error showing cart: {e}")
+        bot.send_message(chat_id, "❌ Ошибка при загрузке корзины")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("remove_from_cart_"))
+def remove_from_cart(call):
+    chat_id = call.message.chat.id
+    index = int(call.data.split('_')[-1])
+    user = user_data[chat_id]
+    if 0 <= index < len(user['cart']):
+        removed_item = user['cart'].pop(index)
+        save_data()  # Сохраняем изменения
+        bot.answer_callback_query(call.id, f"✅ Удалено: {removed_item['name']}")
+        bot.delete_message(chat_id, call.message.message_id)
+        show_cart(call.message)
+    else:
+        bot.answer_callback_query(call.id, "❌ Ошибка удаления")     
+        
+@bot.callback_query_handler(func=lambda call: call.data == "confirm_order")
+def confirm_order(call):
+    try:
+        chat_id = call.message.chat.id
+        user = user_data[chat_id]
+        
+        if not user['cart']:
+            bot.answer_callback_query(call.id, "❌ Корзина пуста!")
+            return
+        
+        order_id = user['order_counter']
+        total = sum(item['price'] for item in user['cart'])
+        
+        user['orders'][order_id] = {
+            "items": user['cart'].copy(),
+            "status": "Собирается",
+            "total": total
+        }
+        user['order_counter'] += 1
+        user['cart'] = []  # Очищаем корзину
+        save_data()  # Сохраняем изменения
+        
+        bot.send_message(
+            chat_id,
+            f"📦 *Заказ #{order_id} оформлен!*\n\n"
+            f"💸 Оплачено {total} руб.\n"
+            f"🚚 Заказ отправят голубиной почтой России\n\n"
+            f"Статус: Собирается\n"
+            f"Спасибо за покупку! 🎉",
+            parse_mode="Markdown"
+        )
+        
+        bot.delete_message(chat_id, call.message.message_id)
+        show_orders(call.message)
+        
+    except Exception as e:
+        print(f"Error confirming order: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка оформления заказа")    
+        
+def show_orders(message):
+    try:
+        chat_id = message.chat.id
+        orders = user_data[chat_id].get('orders', {})
+        
+        if not orders:
+            bot.send_message(chat_id, "📦 У вас еще нет заказов")
+            return
+        
+        text = "📦 *Ваши заказы:*\n\n" + "\n\n".join(
+            [f"➖➖➖➖➖➖➖\n"
+             f"Заказ #{oid}\n"
+             f"Статус: {order['status']}\n"
+             f"Сумма: {order['total']} руб.\n"
+             f"Состав: {', '.join([item['name'] for item in order['items']])}"
+             for oid, order in orders.items()]
+        )
+        bot.send_message(chat_id, text, parse_mode="Markdown")
+        
+    except Exception as e:
+        print(f"Error showing orders: {e}")
+        bot.send_message(chat_id, "❌ Ошибка при загрузке заказов")
+        
+def show_contacts(message):
+    bot.send_message(message.chat.id, 
+                    "📞 *Наши контакты:*\n\n"
+                    "Телефон: +7 (999) 123-45-67\n"
+                    "Email: info@parfum-bot.com\n"
+                    "Адрес: Москва, ул. Ароматная, 15\n\n"
+                    "⏰ Работаем ежедневно 10:00-20:00",
+                    parse_mode="Markdown")
+
+def show_faq(message):
+    bot.send_message(message.chat.id,
+                    "❓ *Частые вопросы:*\n\n"
+                    "💳 *Как оплатить?*\n"
+                    "Оплата при получении наличными или картой\n\n"
+                    "🚚 *Срок доставки?*\n"
+                    "1-3 дня по Москве, 3-7 дней по России\n\n"
+                    "🔄 *Возврат?*\n"
+                    "Возможен в течение 14 дней",
+                    parse_mode="Markdown")
+
+def show_reviews(message):
+    bot.send_message(message.chat.id,
+                    "⭐️ *Отзывы наших клиентов:*\n\n"
+                    "«Потрясающий сервис! Аромат идеально подошел» - Анна\n"
+                    "«Быстрая доставка, все аккуратно упаковано» - Дмитрий\n"
+                    "«Лучший выбор парфюмерии!» - Екатерина",
+                    parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: True)
+def handle_messages(message):
+    chat_id = message.chat.id
+    
+    if user_data[chat_id].get('test_in_progress'):
+        process_test_answer(message)
+    elif message.text == "Меню 📲":
+        show_main_menu(message)
+    elif message.text in ["Да ✅", "Нет ❌"]:
+        process_test_step(message)
+    elif message.text == "➕ Добавить товар":
+        add_product(message)
+    else:
+        bot.send_message(chat_id, "Используй кнопки для навигации 👇")
+
+bot.polling(none_stop=True)
