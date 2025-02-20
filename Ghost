@@ -13,8 +13,8 @@ import sqlite3
 load_dotenv()
 # Инициализация бота
 bot = telebot.TeleBot(os.getenv('TOKEN_GHOST'))
-ADMIN_IDS = os.getenv("ADMIN_IDS")
-CHAT_ID = os.getenv("CHAT_ID")
+ADMIN_IDS = [int(admin_id) for admin_id in os.getenv('ADMIN_IDS').split(',')]
+CHAT_ID = int(os.getenv('CHAT_ID'))
 BOT_ID = bot.get_me().id
 
 # Подключение к базе данных SQLite
