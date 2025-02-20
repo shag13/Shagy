@@ -358,57 +358,57 @@ def check_message_flood():
                 message_times.clear()  # Очищаем очередь после отправки угрозы
 
 # Обработчики сообщений
-@bot.message_handler(func=lambda message: 'призрак' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'призрак' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_ghost(message):
     msg = bot.reply_to(message, random.choice(ghost_responses))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'дух' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'дух' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_spirit(message):
     msg = bot.reply_to(message, random.choice(spirit_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'кости' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'кости' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_bones(message):
     msg = bot.reply_to(message, random.choice(bones_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'страх' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'страх' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_2(message))
 def respond_to_fear(message):
     msg = bot.reply_to(message, random.choice(fear_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'тьма' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'тьма' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_dark(message):
     msg = bot.reply_to(message, random.choice(dark_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'ужас' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'ужас' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_uzas(message):
     msg = bot.reply_to(message, random.choice(uzas_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'ночь' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'ночь' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_night(message):
     msg = bot.reply_to(message, random.choice(night_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'умер' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'умер' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_death(message):
     msg = bot.reply_to(message, random.choice(death_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'заброшка' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'заброшка' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_losty(message):
     msg = bot.reply_to(message, random.choice(losty_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'тень' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'тень' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_shadow(message):
     msg = bot.reply_to(message, random.choice(shadow_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
     
-@bot.message_handler(func=lambda message: 'зловещий' in message.text.lower() and message.from_user.id != BOT_ID and not message.text.startswith('/2'))
+@bot.message_handler(func=lambda message: 'зловещий' in message.text.lower() and message.from_user.id != BOT_ID and not is_admin_command_5(message))
 def respond_to_zlo(message):
     msg = bot.reply_to(message, random.choice(zlo_response))
     threading.Timer(4, bot.delete_message, args=[message.chat.id, msg.message_id]).start()
@@ -416,6 +416,7 @@ def respond_to_zlo(message):
 # Единственная команда для админа
 @bot.message_handler(commands=['5'])
 def admin_send_photo_with_text(message):
+    # Проверка прав администратора
     if message.from_user.id not in ADMIN_IDS:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
         return
@@ -430,9 +431,16 @@ def admin_send_photo_with_text(message):
         _, file_id, caption_text = parts
         bot.send_photo(CHAT_ID, file_id, caption=caption_text)
 
+    except IndexError:
+        # Обработка ошибки, если текст после команды отсутствует
+        bot.reply_to(message, "Пожалуйста, введите file_id и текст после команды /5.")
     except Exception as e:
+        # Обработка других ошибок
         bot.reply_to(message, f"Ошибка: {str(e)}. Проверьте правильность ввода команды.")
-
+        
+def is_admin_command_5(message):
+    return message.text.startswith('/5')
+    
 # Обработчик inline-кнопок
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
