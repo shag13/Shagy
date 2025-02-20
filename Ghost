@@ -16,6 +16,7 @@ load_dotenv()
 bot = telebot.TeleBot(os.getenv('TOKEN_GHOST'))
 ADMIN_IDS = [int(admin_id) for admin_id in os.getenv('ADMIN_IDS').split(',')]
 CHAT_ID = int(os.getenv('CHAT_ID'))
+BOT_ID = bot.get_me().id
 
 # Подключение к базе данных SQLite
 conn = sqlite3.connect('bot_database.db', check_same_thread=False)
