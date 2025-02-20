@@ -434,6 +434,34 @@ def send_message_as_bot(message):
 def tell_ghost_story(message):
     bot.reply_to(message, ghost_story)
 
+@bot.message_handler(content_types=["photo"])
+def handle_photo(message):
+    # Проверяем, что сообщение содержит фото
+    if message.photo:
+        # Берем последний элемент из списка photo, так как это самое большое изображение
+        file_id = message.photo[-1].file_id
+    else:
+        bot.reply_to(message, "Это не изображение в формате JPG!")
+        return
+
+    # Сохраняем file_id в словарь (по chat_id пользователя)
+    user_photos[message.chat.id] = file_id
+    bot.reply_to(message, f"{file_id}")
+
+@bot.message_handler(commands=["send"])
+def send_photo_with_text(message):
+    # Получаем сохранённый file_id изображения
+    file_id = user_photos.get(message.chat.id)
+    if not file_id:
+        bot.reply_to(message, "Сначала отправьте изображение!")
+        return
+
+    # Отправляем изображение с текстом
+    bot.send_photo(
+        chat_id=message.chat.id,
+        photo=file_id,
+    )
+
 # Новые команды для админа
 @bot.message_handler(commands=['1'])
 def admin_command_1(message):
@@ -484,34 +512,6 @@ def handle_callback(call):
     elif call.data == "blue_pill":
         bot.answer_callback_query(call.id, "Ты выбрал синюю таблетку. Сообщение исчезнет.")
         bot.delete_message(call.message.chat.id, call.message.message_id)
-
-@bot.message_handler(content_types=["photo"])
-def handle_photo(message):
-    # Проверяем, что сообщение содержит фото
-    if message.photo:
-        # Берем последний элемент из списка photo, так как это самое большое изображение
-        file_id = message.photo[-1].file_id
-    else:
-        bot.reply_to(message, "Это не изображение в формате JPG!")
-        return
-
-    # Сохраняем file_id в словарь (по chat_id пользователя)
-    user_photos[message.chat.id] = file_id
-    bot.reply_to(message, f"{file_id}")
-
-@bot.message_handler(commands=["send"])
-def send_photo_with_text(message):
-    # Получаем сохранённый file_id изображения
-    file_id = user_photos.get(message.chat.id)
-    if not file_id:
-        bot.reply_to(message, "Сначала отправьте изображение!")
-        return
-
-    # Отправляем изображение с текстом
-    bot.send_photo(
-        chat_id=message.chat.id,
-        photo=file_id,
-    )
 
 # Общий обработчик сообщений (с проверкой на команды)
 @bot.message_handler(func=lambda message: True)
