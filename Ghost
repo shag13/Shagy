@@ -416,13 +416,11 @@ def respond_to_zlo(message):
 # Единственная команда для админа
 @bot.message_handler(commands=['5'])
 def admin_send_photo_with_text(message):
-    # Проверка прав администратора
     if message.from_user.id not in ADMIN_IDS:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
         return
 
     try:
-        # Разделяем команду на части (максимально 2 раза)
         parts = message.text.split(' ', 2)
         if len(parts) < 3:
             bot.reply_to(message, "Формат команды: /5 file_id ваш_текст_с_пробелами")
@@ -432,10 +430,8 @@ def admin_send_photo_with_text(message):
         bot.send_photo(CHAT_ID, file_id, caption=caption_text)
 
     except IndexError:
-        # Обработка ошибки, если текст после команды отсутствует
         bot.reply_to(message, "Пожалуйста, введите file_id и текст после команды /5.")
     except Exception as e:
-        # Обработка других ошибок
         bot.reply_to(message, f"Ошибка: {str(e)}. Проверьте правильность ввода команды.")
         
 def is_admin_command_5(message):
@@ -457,7 +453,7 @@ def handle_callback(call):
 def track_messages(message):
     global message_times
     if message.chat.id == CHAT_ID and message.from_user.id != BOT_ID:
-        if not message.text.startswith('/'):
+        if not message.text.startswith('/') and not is_admin_command_5(message):
             message_times.append(datetime.now())
             
 # Запуск бота и планировщика
