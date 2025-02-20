@@ -445,18 +445,18 @@ def admin_command_2(message):
     if message.from_user.id in ADMIN_IDS:
         try:
             # Разделяем команду на file_id и текст
-            parts = message.text.split(' ', 2)
+            parts = message.text.split(' ', 2)  # Разделяем на 3 части: команда, file_id, текст
             if len(parts) < 3:
                 bot.reply_to(message, "Пожалуйста, введите file_id и текст после команды /2.")
                 return
             
-            file_id = parts[1]
-            text = parts[2]
+            file_id = parts[1]  # file_id всегда идет после команды
+            text = parts[2]     # Остальная часть строки — это текст сообщения
             
             # Отправляем фото с текстом
             bot.send_photo(CHAT_ID, file_id, caption=text)
-        except IndexError:
-            bot.reply_to(message, "Пожалуйста, введите file_id и текст после команды /2.")
+        except Exception as e:
+            bot.reply_to(message, f"Ошибка: {e}. Проверьте правильность ввода команды.")
     else:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
         
