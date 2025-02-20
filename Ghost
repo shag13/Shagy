@@ -160,13 +160,6 @@ def send_message_as_bot(message):
 def tell_ghost_story(message):
     bot.reply_to(message, ghost_story)
 
-# Новые команды для админа
-@bot.message_handler(commands=['1'])
-def admin_command_1(message):
-    if message.from_user.id in ADMIN_IDS:
-        bot.send_message(CHAT_ID, "Страшно? Обосрались?")
-    else:
-        bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
@@ -190,18 +183,6 @@ def admin_command_2(message):
             bot.send_photo(CHAT_ID, file_id, caption=text)
         except Exception as e:
             bot.reply_to(message, f"Ошибка: {e}. Проверьте правильность ввода команды.")
-    else:
-        bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
-        
-@bot.message_handler(commands=['3'])
-def admin_command_3(message):
-    if message.from_user.id in ADMIN_IDS:
-        try:
-            msg = message.text.split(' ', 1)[1]
-            for user_id in get_red_pill_users():
-                bot.send_message(user_id, msg)
-        except IndexError:
-            bot.reply_to(message, "Пожалуйста, введите текст после команды /3.")
     else:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
 
