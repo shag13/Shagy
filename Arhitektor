@@ -1,0 +1,272 @@
+from dotenv import load_dotenv
+import telebot
+import json
+import os
+
+load_dotenv()
+# Замените 'YOUR_BOT_TOKEN' на токен вашего бота
+bot = telebot.TeleBot(os.getenv('TOKEN_ARHITEKTOR'))
+data_file = 'arhitektor.json'  # Изменено на arhitektor.json
+
+# Структура данных для многоуровневого меню
+DEFAULT_DATA = {
+    "menu": {
+        "Меню": {
+            "id": "menu_root"
+        }
+    },
+    "texts": {},
+    "images": {}  # Для хранения file_id изображений
+}
+
+# Состояние пользователей (хранит текущий путь в меню)
+user_state = {}
+
+def load_data():
+    if os.path.exists(data_file):
+        with open(data_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            # Проверяем, есть ли ключ 'images' в загруженных данных
+            if "images" not in data:
+                data["images"] = {}  # Добавляем ключ, если его нет
+            return data
+    return DEFAULT_DATA.copy()
+
+def save_data(data):
+    with open(data_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+data = load_data()
+ADMIN_ID = os.getenv("ADMIN_ID")
+
+# Главное меню
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_state[message.chat.id] = ["menu_root"]  # Начинаем с корневого меню
+    show_menu(message, user_state[message.chat.id])
+
+@bot.message_handler(func=lambda m: True)
+def handle_message(message):
+    chat_id = message.chat.id
+    if chat_id not in user_state:
+        user_state[chat_id] = ["menu_root"]  # Инициализация состояния
+
+    if message.text == "Меню":
+        user_state[chat_id] = ["menu_root"]  # Возврат в корневое меню
+        show_menu(message, user_state[chat_id])
+    elif message.text == "Назад":
+        if len(user_state[chat_id]) > 1:
+            user_state[chat_id].pop()  # Возврат на уровень выше
+        show_menu(message, user_state[chat_id])
+    elif message.from_user.id == ADMIN_ID and message.text == "Кнопка":
+        bot.send_message(chat_id, "Введите путь к новой кнопке через дефис (Пример: Меню-Раздел1-Кнопка1):")
+        bot.register_next_step_handler(message, process_new_button)
+    elif message.from_user.id == ADMIN_ID and message.text == "Текст":
+        bot.send_message(chat_id, "Введите путь к кнопке и текст через дефис (Пример: Меню-Раздел1-Кнопка1-Текст):")
+        bot.register_next_step_handler(message, process_button_text)
+    elif message.from_user.id == ADMIN_ID and message.text == "Удалить":
+        bot.send_message(chat_id, "Введите путь к кнопке, которую нужно удалить (Пример: Меню-Пункт 1):")
+        bot.register_next_step_handler(message, process_delete_button)
+    else:
+        # Проверяем, является ли сообщение кнопкой меню
+        current_menu = get_current_menu(data['menu'], user_state[chat_id])
+        for btn, btn_data in current_menu.items():
+            if btn == "id":
+                continue
+            if message.text == btn:
+                user_state[chat_id].append(btn_data["id"])  # Переход в подменю
+                show_menu(message, user_state[chat_id])
+                return
+        # Если это текстовая кнопка
+        if message.text in data['texts']:
+            show_button_text(message)
+        else:
+            bot.send_message(chat_id, "Неизвестная команда.")
+
+# Обработчик загрузки изображений
+@bot.message_handler(content_types=['photo'])
+def handle_image(message):
+    if message.from_user.id == ADMIN_ID:
+        # Сохраняем file_id изображения
+        file_id = message.photo[-1].file_id
+        data['images'][file_id] = True  # Можно сохранить дополнительную информацию
+        save_data(data)
+        bot.send_message(message.chat.id, f"Изображение загружено! file_id: {file_id}")
+    else:
+        bot.send_message(message.chat.id, "Вы не админ.")
+
+def show_menu(message, path):
+    chat_id = message.chat.id
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    
+    # Получаем текущее меню
+    current_menu = get_current_menu(data['menu'], path)
+    
+    # Добавляем кнопки текущего меню
+    for btn, btn_data in current_menu.items():
+        if btn == "id":
+            continue  # Пропускаем ключ "id"
+        markup.add(btn)
+    
+    # Добавляем кнопку "Назад" (если это не корневое меню)
+    if len(path) > 1:
+        markup.add("Назад")
+    
+    # Добавляем админ-кнопки
+    if message.from_user.id == ADMIN_ID:
+        markup.row("Кнопка", "Текст", "Удалить")
+    
+    markup.add("Меню")
+    
+    # Получаем текст для текущего пункта меню
+    current_id = path[-1]  # Берем последний элемент пути (текущий id)
+    text = data['texts'].get(current_id, "Текст для этой кнопки ещё не добавлен")
+    
+    # Отправляем текст и меню
+    bot.send_message(chat_id, text, reply_markup=markup)
+
+def process_new_button(message):
+    try:
+        path = message.text.strip().split('-')
+        current_menu = data['menu']
+        
+        # Создаем вложенные меню
+        for key in path[:-1]:
+            found = False
+            for btn, btn_data in current_menu.items():
+                if btn == key:
+                    current_menu = current_menu[btn]
+                    found = True
+                    break
+            if not found:
+                bot.send_message(message.chat.id, f"Ошибка! Кнопка '{key}' не найдена.")
+                return
+        
+        # Добавляем новую кнопку
+        new_button = path[-1]
+        if new_button not in current_menu:
+            # Генерируем уникальный id для новой кнопки
+            new_id = f"item_{len(data['texts']) + 1}"
+            current_menu[new_button] = {"id": new_id}
+            save_data(data)
+            bot.send_message(message.chat.id, f"Кнопка '{new_button}' добавлена с id '{new_id}'!")
+            # Показываем обновленное меню
+            show_menu(message, user_state[message.chat.id])
+        else:
+            bot.send_message(message.chat.id, "Такая кнопка уже существует!")
+    except Exception as e:
+        print(e)  # Для отладки
+        bot.send_message(message.chat.id, "Ошибка! Проверьте формат ввода.")
+
+def process_button_text(message):
+    try:
+        # Разделяем путь и текст
+        path_text = message.text.strip().rsplit('-', 1)
+        if len(path_text) != 2:
+            bot.send_message(message.chat.id, "Ошибка! Проверьте формат ввода.")
+            return
+        
+        path, text = path_text
+        path = path.split('-')
+        
+        # Проверяем, существует ли конечная кнопка
+        current_menu = data['menu']
+        for key in path:
+            found = False
+            for btn, btn_data in current_menu.items():
+                if btn == key:
+                    current_menu = current_menu[btn]
+                    found = True
+                    break
+            if not found:
+                bot.send_message(message.chat.id, f"Ошибка! Кнопка '{key}' не найдена.")
+                return
+        
+        # Проверяем, что current_menu — это словарь и содержит id
+        if not isinstance(current_menu, dict) or "id" not in current_menu:
+            bot.send_message(message.chat.id, "Ошибка! Кнопка не имеет id.")
+            return
+        
+        # Сохраняем текст
+        button_id = current_menu["id"]
+        data['texts'][button_id] = text
+        save_data(data)
+        bot.send_message(message.chat.id, f"Текст для кнопки '{path[-1]}' (id: {button_id}) обновлен!")
+    except Exception as e:
+        print(e)  # Для отладки
+        bot.send_message(message.chat.id, "Ошибка! Проверьте формат ввода.")
+
+def process_delete_button(message):
+    try:
+        path = message.text.strip().split('-')
+        current_menu = data['menu']
+        
+        # Находим родительский элемент
+        parent_menu = current_menu
+        for key in path[:-1]:
+            if key in parent_menu:
+                parent_menu = parent_menu[key]
+            else:
+                bot.send_message(message.chat.id, f"Ошибка! Кнопка '{key}' не найдена.")
+                return
+        
+        # Удаляем кнопку и все её подменю
+        button_to_delete = path[-1]
+        if button_to_delete in parent_menu:
+            # Удаляем все связанные тексты
+            delete_texts_and_submenus(parent_menu[button_to_delete])
+            del parent_menu[button_to_delete]
+            save_data(data)
+            bot.send_message(message.chat.id, f"Кнопка '{button_to_delete}' и все её подменю удалены!")
+            show_menu(message, user_state[message.chat.id])
+        else:
+            bot.send_message(message.chat.id, f"Кнопка '{button_to_delete}' не найдена.")
+    except Exception as e:
+        print(e)  # Для отладки
+        bot.send_message(message.chat.id, "Ошибка! Проверьте формат ввода.")
+
+def delete_texts_and_submenus(menu):
+    """
+    Рекурсивно удаляет тексты и подменю.
+    """
+    if "id" in menu:
+        # Удаляем текст, связанный с текущей кнопкой
+        if menu["id"] in data['texts']:
+            del data['texts'][menu["id"]]
+    for key, value in menu.items():
+        if isinstance(value, dict):
+            delete_texts_and_submenus(value)
+
+def show_button_text(message):
+    current_menu = get_current_menu(data['menu'], user_state[message.chat.id])
+    for btn, btn_data in current_menu.items():
+        if btn == "id":
+            continue
+        if message.text == btn:
+            text = data['texts'].get(btn_data["id"], "Текст для этой кнопки ещё не добавлен")
+            bot.send_message(message.chat.id, text)
+            return
+
+def get_current_menu(menu, path):
+    """
+    Возвращает текущее меню по пути.
+    """
+    current_menu = menu
+    for key in path:
+        if isinstance(current_menu, dict):  # Проверяем, что current_menu — это словарь
+            found = False
+            for btn, btn_data in current_menu.items():
+                if btn == "id":
+                    continue  # Пропускаем ключ "id"
+                if isinstance(btn_data, dict) and btn_data.get("id") == key:
+                    current_menu = btn_data
+                    found = True
+                    break
+            if not found:
+                return {}  # Если ключ не найден, возвращаем пустой словарь
+        else:
+            return {}  # Если current_menu не словарь, возвращаем пустой словарь
+    return current_menu
+
+if __name__ == '__main__':
+    bot.polling(none_stop=True)
