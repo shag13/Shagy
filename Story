@@ -1,0 +1,282 @@
+from dotenv import load_dotenv
+import telebot
+from telebot import types
+import json
+import os
+
+load_dotenv()
+# Замените 'YOUR_BOT_TOKEN' на токен вашего бота
+bot = telebot.TeleBot(os.getenv('TOKEN_STORYTELLER'))
+ADMIN_ID = os.getenv("ADMIN_ID")
+
+DATA_FILE = 'story.json'  # Изменено на story.json
+
+# Загрузка данных с защитой от KeyError
+def load_data():
+    default = {"stories": [], "current_index": {}, "chapters": []}
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return {
+                    "stories": data.get("stories", []),
+                    "current_index": data.get("current_index", {}),
+                    "chapters": data.get("chapters", [])
+                }
+        return default
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return default
+
+# Сохранение данных
+def save_data(data):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+# Инициализация данных
+data = load_data()
+stories = data["stories"]
+current_index = {k: int(v) for k, v in data["current_index"].items()}
+chapters = data["chapters"]
+user_states = {}
+
+# Компактное меню
+def main_menu(user_id):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = ['📖 Начать историю', '📑 Оглавление']
+    if user_id == ADMIN_ID:
+        buttons.append('🛠 Создатель')
+    markup.add(*buttons)
+    return markup
+
+# Обработчик /start
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.send_message(
+        message.chat.id,
+        "🌟 Добро пожаловать в StoryBot! 🌟",
+        reply_markup=main_menu(message.from_user.id)
+    )
+
+# Добавление историй
+@bot.message_handler(func=lambda m: m.text == '🛠 Создатель' and m.from_user.id == ADMIN_ID)
+def admin_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = ['📝 Добавить историю', '📚 Главы', '🖼 С картинкой', '🏠 Главное меню']
+    markup.add(*buttons)
+    bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == '📝 Добавить историю' and m.from_user.id == ADMIN_ID)
+def request_story(message):
+    user_states[message.chat.id] = 'awaiting_story'
+    bot.send_message(message.chat.id, "📝 Пришлите текст истории, разделяя части двойным переносом строки:")
+
+@bot.message_handler(func=lambda m: m.chat.id in user_states and user_states[m.chat.id] == 'awaiting_story')
+def handle_story(message):
+    if message.text == '🏠 Главное меню':
+        return_to_menu(message)
+        return
+    
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    parts = [p.strip() for p in message.text.split('\n\n') if p.strip()]
+    
+    if parts:
+        stories.extend(parts)
+        save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+        bot.reply_to(message, f"✅ Добавлено {len(parts)} новых глав!")
+    else:
+        bot.reply_to(message, "❌ Не обнаружено частей для добавления")
+    
+    del user_states[message.chat.id]
+
+# Добавление глав
+@bot.message_handler(func=lambda m: m.text == '📚 Главы' and m.from_user.id == ADMIN_ID)
+def request_chapter_name(message):
+    user_states[message.chat.id] = 'awaiting_chapter_name'
+    bot.send_message(message.chat.id, "📝 Введите название главы:")
+
+@bot.message_handler(func=lambda m: m.chat.id in user_states and user_states[m.chat.id] == 'awaiting_chapter_name')
+def handle_chapter_name(message):
+    if message.text == '🏠 Главное меню':
+        return_to_menu(message)
+        return
+    
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    chapter_name = message.text.strip()
+    user_states[message.chat.id] = 'awaiting_chapter_index'
+    user_states[f"{message.chat.id}_chapter_name"] = chapter_name
+    bot.send_message(message.chat.id, f"📝 Введите номер сообщения, к которому привязать главу '{chapter_name}':")
+
+@bot.message_handler(func=lambda m: m.chat.id in user_states and user_states[m.chat.id] == 'awaiting_chapter_index')
+def handle_chapter_index(message):
+    if message.text == '🏠 Главное меню':
+        return_to_menu(message)
+        return
+    
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    try:
+        index = int(message.text.strip()) - 1
+        if 0 <= index < len(stories):
+            chapter_name = user_states[f"{message.chat.id}_chapter_name"]
+            chapters.append({"name": chapter_name, "index": index})
+            save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+            bot.reply_to(message, f"✅ Глава '{chapter_name}' успешно добавлена!")
+        else:
+            bot.reply_to(message, "❌ Некорректный номер сообщения")
+    except ValueError:
+        bot.reply_to(message, "❌ Некорректный номер сообщения")
+    
+    del user_states[message.chat.id]
+    del user_states[f"{message.chat.id}_chapter_name"]
+
+# Добавление истории с картинкой
+@bot.message_handler(func=lambda m: m.text == '🖼 С картинкой' and m.from_user.id == ADMIN_ID)
+def request_photo_story(message):
+    user_states[message.chat.id] = 'awaiting_photo_story'
+    bot.send_message(message.chat.id, "🖼 Пришлите картинку, а затем текст для истории:")
+
+@bot.message_handler(content_types=["photo"])
+def handle_photo(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    file_id = message.photo[-1].file_id
+    
+    # Если админ нажал "С картинкой", ожидаем текст
+    if message.chat.id in user_states and user_states[message.chat.id] == 'awaiting_photo_story':
+        user_states[f"{message.chat.id}_photo_id"] = file_id
+        bot.send_message(message.chat.id, "📝 Теперь введите текст для этой картинки:")
+    else:
+        # Если картинка отправлена без нажатия кнопки, привязываем её к первому сообщению без картинки
+        for i, story in enumerate(stories):
+            if isinstance(story, str):  # Если это просто текст (без картинки)
+                stories[i] = {"type": "photo", "photo_id": file_id, "text": story}
+                save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+                bot.reply_to(message, f"✅ Картинка привязана к главе {i+1}!")
+                break
+        else:
+            bot.reply_to(message, "❌ Нет доступных глав для привязки картинки.")
+
+@bot.message_handler(func=lambda m: m.chat.id in user_states and user_states[m.chat.id] == 'awaiting_photo_story' and f"{m.chat.id}_photo_id" in user_states)
+def handle_photo_story_text(message):
+    if message.text == '🏠 Главное меню':
+        return_to_menu(message)
+        return
+    
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    photo_id = user_states[f"{message.chat.id}_photo_id"]
+    text = message.text.strip()
+    
+    # Сохраняем историю с картинкой
+    stories.append({"type": "photo", "photo_id": photo_id, "text": text})
+    save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+    bot.reply_to(message, f"✅ История с картинкой добавлена!")
+    
+    del user_states[message.chat.id]
+    del user_states[f"{message.chat.id}_photo_id"]
+
+# Меню оглавления
+@bot.message_handler(func=lambda m: m.text == '📑 Оглавление')
+def show_chapters(message):
+    if not chapters:
+        bot.send_message(message.chat.id, "📭 Главы пока не добавлены, загляните позже!")
+        return
+    
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = [chapter["name"] for chapter in chapters]
+    buttons.append('🏠 Главное меню')
+    markup.add(*buttons)
+    bot.send_message(message.chat.id, "📑 Выберите главу:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text in [chapter["name"] for chapter in chapters])
+def navigate_to_chapter(message):
+    chapter = next((ch for ch in chapters if ch["name"] == message.text), None)
+    if chapter:
+        current_index[message.chat.id] = chapter["index"]
+        save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+        show_page(message.chat.id)
+
+# Навигационное меню
+def story_nav_markup(chat_id):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    index = current_index.get(chat_id, 0)
+    
+    buttons = []
+    if index > 0:
+        buttons.append('⬅️ Назад')
+    if index < len(stories) - 1:
+        buttons.append('➡️ Вперед')
+    buttons.append('🏠 Главное меню')
+    
+    markup.add(*buttons)
+    return markup
+
+# Отображение истории
+@bot.message_handler(func=lambda m: m.text == '📖 Начать историю')
+def start_story(message):
+    if not stories:
+        bot.send_message(message.chat.id, "📭 Историй пока нет, загляните позже!")
+        return
+    
+    current_index[message.chat.id] = 0
+    save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+    show_page(message.chat.id)
+
+def show_page(chat_id):
+    index = current_index.get(chat_id, 0)
+    try:
+        story = stories[index]
+        if isinstance(story, str):  # Если история — это просто текст
+            text = f"📖 Глава {index+1}/{len(stories)}\n\n{story}"
+            bot.send_message(chat_id, text, reply_markup=story_nav_markup(chat_id))
+        elif isinstance(story, dict) and story.get("type") == "photo":  # Если история с картинкой
+            photo_id = story["photo_id"]
+            text = f"📖 Глава {index+1}/{len(stories)}\n\n{story['text']}"
+            bot.send_photo(chat_id, photo=photo_id, caption=text, reply_markup=story_nav_markup(chat_id))
+    except IndexError:
+        bot.send_message(chat_id, "⚠️ Ошибка загрузки истории", reply_markup=main_menu(chat_id))
+
+# Обработка навигации
+@bot.message_handler(func=lambda m: m.text in ['⬅️ Назад', '➡️ Вперед'])
+def navigate_story(message):
+    chat_id = message.chat.id
+    if chat_id not in current_index:
+        return
+    
+    delta = -1 if message.text == '⬅️ Назад' else 1
+    new_index = current_index[chat_id] + delta
+    
+    if 0 <= new_index < len(stories):
+        current_index[chat_id] = new_index
+        save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+        show_page(chat_id)
+
+# Возврат в меню
+@bot.message_handler(func=lambda m: m.text == '🏠 Главное меню')
+def return_to_menu(message):
+    chat_id = message.chat.id
+    
+    # Если пользователь находится в состоянии ожидания, сбрасываем его
+    if chat_id in user_states:
+        del user_states[chat_id]
+        if f"{chat_id}_photo_id" in user_states:
+            del user_states[f"{chat_id}_photo_id"]
+        bot.send_message(chat_id, "❌ Действие отменено.", reply_markup=main_menu(chat_id))
+    else:
+        # Если состояние не активное, просто возвращаем в главное меню
+        if chat_id in current_index:
+            del current_index[chat_id]
+            save_data({"stories": stories, "current_index": current_index, "chapters": chapters})
+        send_welcome(message)
+
+if __name__ == '__main__':
+    print("Бот запущен!")
+    bot.polling(none_stop=True)
