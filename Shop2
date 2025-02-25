@@ -21,7 +21,7 @@ load_dotenv()
 router = Router()
 
 # Конфигурация
-bot = telebot.TeleBot(os.getenv('APII_TOKEN'))
+API_TOKEN = os.getenv('APII_TOKEN')
 DATA_FILE = 'shop.json'
 EXPECTED_CATEGORIES = ["Развлечения", "Финансы", "Саморазвитие", "Контент",
                       "Автоматизация", "Здоровье", "Фриланс", "Универсальный"]
