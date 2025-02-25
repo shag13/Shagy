@@ -1,290 +1,542 @@
 from dotenv import load_dotenv
-import telebot
-import json
 import os
+import json
+from aiogram import Bot, Dispatcher, types, F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import (
+    Message, 
+    InlineKeyboardButton, 
+    InlineKeyboardMarkup, 
+    CallbackQuery
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 
 load_dotenv()
-# Замените 'YOUR_BOT_TOKEN' на токен вашего бота
-bot = telebot.TeleBot(os.getenv('TOKEN_SHOP'))
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-# Файл для хранения данных
+router = Router()
+
+# Конфигурация
+bot = telebot.TeleBot(os.getenv('API_TOKEN'))
 DATA_FILE = 'shop.json'
-EXPECTED_CATEGORIES = ["Развлечения", "Финансы", "Саморазвитие", "Контент", "Автоматизация", "Здоровье", "Фриланс", "Универсальный"]
+EXPECTED_CATEGORIES = ["Развлечения", "Финансы", "Саморазвитие", "Контент",
+                      "Автоматизация", "Здоровье", "Фриланс", "Универсальный"]
+ITEMS_PER_PAGE = 1
 
-# Загрузка данных из файла с валидацией
+bot = Bot(
+    token=API_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
+# Состояния
+class Form(StatesGroup):
+    role = State()
+    add_description = State()
+    add_link = State()
+    search = State()
+    delete = State()
+    rate_bot = State()  # Новое состояние для оценки бота
+
+# Модель данных
+# Модифицируем модель данных
+class BotData:
+    def __init__(self, username, description, link, rating=0, votes=0, rated_by=None):
+        self.username = username
+        self.description = description
+        self.link = link
+        self.rating = rating
+        self.votes = votes
+        self.rated_by = rated_by if rated_by is not None else []  # Инициализируем пустым списком, если не передано
+
+# Модифицируем загрузку данных
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Удаляем лишние категории
-            for category in list(data.keys()):
-                if category not in EXPECTED_CATEGORIES:
-                    del data[category]
-            
-            # Добавляем отсутствующие категории и проверяем структуру
-            for cat in EXPECTED_CATEGORIES:
-                if cat not in data:
-                    data[cat] = []
-                # Проверяем тип категории
-                if not isinstance(data[cat], list):
-                    data[cat] = []
-                # Валидируем каждого бота
-                valid_bots = []
-                for bot_data in data[cat]:
-                    if isinstance(bot_data, dict):
-                        bot_data.setdefault('username', 'unknown')
-                        bot_data.setdefault('description', '')
-                        bot_data.setdefault('link', '')
-                        bot_data.setdefault('rating', 0)
-                        bot_data.setdefault('votes', 0)
-                        valid_bots.append(bot_data)
-                data[cat] = valid_bots
-            return data
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Ошибка загрузки данных: {e}")
+                raw_data = json.load(f)
+                data_dict = {}
+                for cat, bots in raw_data.items():
+                    bot_list = []
+                    for bot in bots:
+                        # Убедимся, что все необходимые поля присутствуют
+                        bot_data = {
+                            'username': bot.get('username', ''),
+                            'description': bot.get('description', ''),
+                            'link': bot.get('link', ''),
+                            'rating': bot.get('rating', 0),
+                            'votes': bot.get('votes', 0),
+                            'rated_by': bot.get('rated_by', [])  # Добавляем rated_by
+                        }
+                        bot_list.append(BotData(**bot_data))
+                    data_dict[cat] = bot_list
+                return data_dict
+        except Exception as e:
+            print(f"Error loading data: {e}")
+            return {cat: [] for cat in EXPECTED_CATEGORIES}
     return {cat: [] for cat in EXPECTED_CATEGORIES}
 
+# Модифицируем сохранение данных
+def save_data(data):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        serializable = {
+            cat: [
+                {
+                    'username': bot.username,
+                    'description': bot.description,
+                    'link': bot.link,
+                    'rating': bot.rating,
+                    'votes': bot.votes,
+                    'rated_by': bot.rated_by  # Сохраняем rated_by
+                }
+                for bot in bots
+            ]
+            for cat, bots in data.items()
+        }
+        json.dump(serializable, f, ensure_ascii=False, indent=4)
+
+# Загружаем данные при старте
 data = load_data()
 
-# Сохранение данных в файл
-def save_data():
-    try:
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-    except IOError as e:
-        print(f"Ошибка сохранения данных: {e}")
+# Клавиатуры
+def main_menu_kb():
+    total_bots = sum(len(bots) for bots in data.values())
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=f"👨💼 Продавец",
+            callback_data="role_seller"),
+        InlineKeyboardButton(
+            text=f"👩💼 Покупатель ({total_bots} ботов)", 
+            callback_data="role_buyer")
+    )
+    return builder.as_markup()
 
-# Обработка команды /start
-@bot.message_handler(commands=['start'])
-def start(message):
-    markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    btn_seller = telebot.types.KeyboardButton('👨‍💼 Я продавец')
-    btn_buyer = telebot.types.KeyboardButton('👩‍💼 Я покупатель')
-    markup.add(btn_seller, btn_buyer)
-    bot.send_message(message.chat.id, "Добро пожаловать! Выберите роль:", reply_markup=markup)
-
-# Обработка нажатия кнопки "Я продавец"
-@bot.message_handler(func=lambda message: message.text == '👨‍💼 Я продавец')
-def seller(message):
-    markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    btn_entertainment = telebot.types.KeyboardButton('🎭 Развлечения')
-    btn_finance = telebot.types.KeyboardButton('💰 Финансы')
-    btn_self_improvement = telebot.types.KeyboardButton('📚 Саморазвитие')
-    btn_content = telebot.types.KeyboardButton('📷 Контент')
-    btn_automation = telebot.types.KeyboardButton('🤖 Автоматизация')
-    btn_health = telebot.types.KeyboardButton('🏥 Здоровье')
-    btn_freelance = telebot.types.KeyboardButton('💼 Фриланс')
-    btn_universal = telebot.types.KeyboardButton('🌐 Универсальный')
-    btn_delete = telebot.types.KeyboardButton('🗑 Удалить бота')
-    btn_menu = telebot.types.KeyboardButton('В меню')
-    markup.add(btn_entertainment, btn_finance, btn_self_improvement, btn_content, btn_automation, btn_health, btn_freelance, btn_universal, btn_delete, btn_menu)
-    bot.send_message(message.chat.id, "Выбери категорию бота:\n\n"
-                                     "🎭 Развлечения - боты для игр, мемов и развлечений. Викторины, игры, генераторы мемов. Боты для планирования путешествий, бронирования отелей.\n"
-                                     "💰 Финансы - боты для управления финансами, инвестициями и бюджетированием. Поиск товаров, заказ еды. Криптовалюта, финансовые рынки. Учет расходов, напоминание о платежах.\n"
-                                     "📚 Саморазвитие - боты для обучения, мотивации и личностного роста. Изучение языков, курсы, тренинги. \n"
-                                     "📷 Контент - боты для создания и управления контентом. Боты для общения, для администрирования соц сетей. Боты для работы с медиа. Новостные и информационные боты.\n"
-                                     "🤖 Автоматизация - боты для автоматизации рутинных задач - напоминания, планировщики, управление задачами.\n"
-                                     "🏥 Здоровье - боты для отслеживания здоровья, тренировок и питания.\n"
-                                     "💼 Фриланс - боты для поиска работы и управления проектами. Боты для поиска работы, уведомления о новых вакансиях\n"
-                                     "🌐 Универсальный - боты с широким функционалом. Адаптивные боты. Боты-конструкторы.\n\n", reply_markup=markup)
-    bot.register_next_step_handler(message, choose_category)
-
-def choose_category(message):
-    if message.text == 'В меню':
-        start(message)
-        return
-    elif message.text == '🗑 Удалить бота':
-        delete_bot(message)
-        return
-    category = message.text[2:]  # Убираем эмодзи
-    if category not in data:
-        bot.send_message(message.chat.id, "Неверная категория. Попробуйте снова.")
-        return
-    bot.send_message(message.chat.id, "Введи краткое описание бота (функционал, возможности):")
-    bot.register_next_step_handler(message, get_description, category)
-
-def get_description(message, category):
-    if message.text == 'В меню':
-        start(message)
-        return
-    description = message.text
-    if len(description) > 100:
-        bot.send_message(message.chat.id, "Описание слишком длинное. Введите описание до 100 символов.")
-        bot.register_next_step_handler(message, get_description, category)
-        return
-    bot.send_message(message.chat.id, "Прикрепи ссылку на бота для тестирования функционала:")
-    bot.register_next_step_handler(message, get_link, category, description)
-
-def get_link(message, category, description):
-    if message.text == 'В меню':
-        start(message)
-        return
-    link = message.text
-    username = message.from_user.username
-    data[category].append({"username": username, "description": description, "link": link, "rating": 0, "votes": 0})
-    save_data()
-    bot.send_message(message.chat.id, "Спасибо! Ваш бот успешно зарегистрирован. 🎉")
-    start(message)  # Возвращаем пользователя в главное меню
-
-# Обработка нажатия кнопки "Я покупатель"
-@bot.message_handler(func=lambda message: message.text == '👩‍💼 Я покупатель')
-def buyer(message):
-    markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    btn_entertainment = telebot.types.KeyboardButton('🎭 Развлечения')
-    btn_finance = telebot.types.KeyboardButton('💰 Финансы')
-    btn_self_improvement = telebot.types.KeyboardButton('📚 Саморазвитие')
-    btn_content = telebot.types.KeyboardButton('📷 Контент')
-    btn_automation = telebot.types.KeyboardButton('🤖 Автоматизация')
-    btn_health = telebot.types.KeyboardButton('🏥 Здоровье')
-    btn_freelance = telebot.types.KeyboardButton('💼 Фриланс')
-    btn_universal = telebot.types.KeyboardButton('🌐 Универсальный')
-    btn_search = telebot.types.KeyboardButton('🔍 Поиск ботов')
-    btn_menu = telebot.types.KeyboardButton('В меню')
-    markup.add(btn_entertainment, btn_finance, btn_self_improvement, btn_content, btn_automation, btn_health, btn_freelance, btn_universal, btn_search, btn_menu)
-    bot.send_message(message.chat.id, "Выбери категорию бота:\n\n"
-                                     "🎭 Развлечения - боты для игр, мемов и развлечений. Викторины, игры, генераторы мемов. Боты для планирования путешествий, бронирования отелей.\n"
-                                     "💰 Финансы - боты для управления финансами, инвестициями и бюджетированием. Поиск товаров, заказ еды. Криптовалюта, финансовые рынки. Учет расходов, напоминание о платежах.\n"
-                                     "📚 Саморазвитие - боты для обучения, мотивации и личностного роста. Изучение языков, курсы, тренинги. \n"
-                                     "📷 Контент - боты для создания и управления контентом. Боты для общения, для администрирования соц сетей. Боты для работы с медиа. Новостные и информационные боты.\n"
-                                     "🤖 Автоматизация - боты для автоматизации рутинных задач - напоминания, планировщики, управление задачами.\n"
-                                     "🏥 Здоровье - боты для отслеживания здоровья, тренировок и питания.\n"
-                                     "💼 Фриланс - боты для поиска работы и управления проектами. Боты для поиска работы, уведомления о новых вакансиях\n"
-                                     "🌐 Универсальный - боты с широким функционалом. Адаптивные боты. Боты-конструкторы.\n\n"
-                                     "Или воспользуйся 🔍 Поиском ботов.", reply_markup=markup)
-    bot.register_next_step_handler(message, buyer_action)
-
-def buyer_action(message):
-    if message.text == 'В меню':
-        start(message)
-        return
-    elif message.text == '🔍 Поиск ботов':
-        bot.send_message(message.chat.id, "Введите ключевое слово для поиска:")
-        bot.register_next_step_handler(message, search_bots)
-    else:
-        show_bots(message)
-
-def show_bots(message):
-    category = message.text[2:]
-    if category not in data:
-        bot.send_message(message.chat.id, "Неверная категория.")
-        return
-    bots = data.get(category, [])
-    if not isinstance(bots, list):
-        bots = []
-    if not bots:
-        bot.send_message(message.chat.id, "В этой категории пока нет ботов. 😔")
-        return
-    sorted_bots = sorted(bots, key=lambda x: x['rating'], reverse=True)
-    bot_list = "\n\n".join([f"👤 {b['username']}\nОписание: {b['description']}\nРейтинг: {b['rating']} ({b['votes']} голосов)\nСсылка: {b['link']}" for b in sorted_bots])
-    markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    btn_rate = telebot.types.KeyboardButton('⭐ Оценить бота')
-    btn_menu = telebot.types.KeyboardButton('В меню')
-    markup.add(btn_rate, btn_menu)
-    bot.send_message(message.chat.id, f"Боты в категории {category}:\n\n{bot_list}", reply_markup=markup)
-    bot.register_next_step_handler(message, handle_category_actions, category)
-
-def handle_category_actions(message, category):
-    if message.text == 'В меню':
-        start(message)
-        return
-    elif message.text == '⭐ Оценить бота':
-        rate_bot(message)
-    else:
-        show_bots(message)
-
-# Поиск ботов по ключевым словам
-def search_bots(message):
-    keyword = message.text.lower()
-    found_bots = []
-    for category, bots in data.items():
-        for bot_data in bots:
-            if keyword in bot_data['description'].lower():
-                found_bots.append((category, bot_data))
-    if not found_bots:
-        bot.send_message(message.chat.id, "Ничего не найдено. 😔")
-        start(message)  # Возвращаем пользователя в главное меню
-        return
-    # Формируем сообщение с найденными ботами
-    bot_list = "\n".join([f"👤 {bot_data['username']}: {bot_data['description']}\n⭐ Рейтинг: {bot_data['rating']}\n🔗 {bot_data['link']}\nКатегория: {category}" for category, bot_data in found_bots])
-    bot.send_message(message.chat.id, f"Вот что удалось найти по запросу '{keyword}':\n\n{bot_list}")
-    start(message)  # Возвращаем пользователя в главное меню
-
-# Удаление ботов
-def delete_bot(message):
-    username = message.from_user.username
-    user_bots = []
-    for category, bots in data.items():
-        for bot_data in bots:
-            if bot_data['username'] == username:
-                user_bots.append((category, bot_data))
-    if not user_bots:
-        bot.send_message(message.chat.id, "У вас нет зарегистрированных ботов. 😔")
-        return
-    # Формируем список ботов для удаления
-    bot_list = "\n".join([f"{i+1}. {bot_data['description']} (Категория: {category})" for i, (category, bot_data) in enumerate(user_bots)])
-    bot.send_message(message.chat.id, f"Ваши боты:\n\n{bot_list}\n\nВведите номер бота, который хотите удалить:")
-    bot.register_next_step_handler(message, confirm_delete, user_bots)
-
-def confirm_delete(message, user_bots):
-    try:
-        index = int(message.text) - 1
-        if index < 0 or index >= len(user_bots):
-            bot.send_message(message.chat.id, "Неверный номер бота. Попробуйте снова.")
-            return
-        category, bot_data = user_bots[index]
-        data[category].remove(bot_data)
-        save_data()
-        bot.send_message(message.chat.id, "Бот успешно удален. 🗑")
-    except ValueError:
-        bot.send_message(message.chat.id, "Пожалуйста, введите номер бота.")
-    start(message)  # Возвращаем пользователя в главное меню
-
-# Оценка ботов
-def rate_bot(message):
-    bot.send_message(message.chat.id, "Введите ссылку на бота:")
-    bot.register_next_step_handler(message, process_link_for_rating)
-
-def process_link_for_rating(message):
-    link = message.text.strip()
-    found = None
+def categories_kb(role: str):
+    total_bots = sum(len(bots) for bots in data.values())
+    builder = InlineKeyboardBuilder()
     for cat in EXPECTED_CATEGORIES:
-        for bot_data in data.get(cat, []):
-            if bot_data.get('link') == link:
-                found = bot_data
-                break
-        if found:
-            break
-    if not found:
-        bot.send_message(message.chat.id, "Бот не найден.")
+        builder.add(InlineKeyboardButton(
+            text=f"{cat}",
+            callback_data=f"category_{role}_{cat}"))
+    if role == 'seller':
+        builder.row(InlineKeyboardButton(
+            text="🗑 Мои боты", 
+            callback_data="my_bots"))
+    builder.row(
+        InlineKeyboardButton(text="🔍 Поиск", callback_data="search"),
+        InlineKeyboardButton(text="🏠 Главная", callback_data="main_menu")
+    )
+    return builder.adjust(2).as_markup()
+
+# Хэндлеры
+@router.message(Command('start'))
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
+    total = sum(len(bots) for bots in data.values())
+    await message.answer(
+        f"<b>🤖 Биржа Telegram ботов</b>\n\n"
+        f"<i>🔄 Зарегистрировано ботов: {total}</i>\n"
+        "Выберите свою роль:",
+        reply_markup=main_menu_kb()
+    )
+
+@router.callback_query(F.data == "main_menu")
+async def main_menu_handler(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    total = sum(len(bots) for bots in data.values())
+    await callback.message.edit_text(
+        f"<b>🤖 Биржа Telegram ботов</b>\n\n"
+        f"<i>🔄 Зарегистрировано ботов: {total}</i>\n"
+        "Выберите свою роль:",
+        reply_markup=main_menu_kb()
+    )
+
+@router.callback_query(F.data.startswith("role_"))
+async def role_handler(callback: CallbackQuery, state: FSMContext):
+    role = callback.data.split("_")[1]
+    await state.update_data(role=role)
+    total = sum(len(bots) for bots in data.values())
+    
+    text = (
+        f"🎛 <b>Панель продавца</b> (всего ботов: {total})\nВыберите категорию для своего бота:" 
+        if role == "seller" 
+        else f"🛍 <b>Каталог ботов</b> (всего: {total})\nВыберите необходимую категорию:"
+    )
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=categories_kb(role)
+    )
+
+@router.message(Command('cancel'))
+async def cancel_handler(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is None:
         return
-    bot.send_message(message.chat.id, "Оцените бота от 1 до 5:")
-    bot.register_next_step_handler(message, process_rating, found)
+    
+    await state.clear()
+    await message.answer("❌ Действие отменено")
+    await cmd_start(message, state)
 
-def process_rating(message, bot_data):
-    try:
-        rating = int(message.text)
-        if 1 <= rating <= 5:
-            bot_data['votes'] += 1
-            bot_data['rating'] = (bot_data['rating'] * (bot_data['votes'] - 1) + rating) / bot_data['votes']
-            save_data()
-            bot.send_message(message.chat.id, "Спасибо за оценку!")
-        else:
-            bot.send_message(message.chat.id, "Введите число от 1 до 5.")
-    except ValueError:
-        bot.send_message(message.chat.id, "Некорректный ввод.")
-    start(message)  # Возвращаем пользователя в главное меню
+@router.message(Form.add_description)
+async def add_description_handler(message: Message, state: FSMContext):
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Создание лота отменено")
+        await cmd_start(message, state)
+        return
+    
+    if len(message.text) > 100:
+        await message.answer("❌ Описание слишком длинное! Максимум 100 символов.")
+        return
+    
+    await state.update_data(description=message.text)
+    await message.answer(
+        "📎 Пришлите дополнительную информацию о боте (например, функционал):\n\n"
+        "❕ Вы можете отменить создание лота командой /cancel"
+    )
+    await state.set_state(Form.add_link)
 
-# Обработка команды /st для админа
-@bot.message_handler(commands=['st'])
-def stats(message):
-    if message.from_user.id == ADMIN_ID:  # Проверяем ID пользователя
-        total = sum(len(bots) for bots in data.values())
-        bot.send_message(message.chat.id, f"📊 Общее количество зарегистрированных ботов: {total}")
+@router.message(Form.add_link)
+async def add_link_handler(message: Message, state: FSMContext):
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Создание лота отменено")
+        await cmd_start(message, state)
+        return
+    
+    await state.update_data(link=message.text)
+    user_data = await state.get_data()
+    category = user_data['category']
+    
+    new_bot = BotData(
+        username=message.from_user.username,
+        description=user_data['description'],
+        link=message.text
+    )
+    
+    data[category].append(new_bot)
+    save_data(data)
+    
+    await message.answer("✅ Бот успешно добавлен!")
+    await cmd_start(message, state)
+
+ITEMS_PER_PAGE = 3  # Показываем по 3 лота на странице------------------------
+
+async def show_bot_page(message: Message, category: str, page: int, role: str):
+    bots = data[category]
+    total_pages = (len(bots) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    page = max(0, min(page, total_pages - 1))
+    
+    if not bots:
+        await message.answer("😔 В этой категории пока пусто")
+        return
+    
+    start_idx = page * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    page_bots = bots[start_idx:end_idx]
+    
+    text = f"<b>{category}</b> (страница {page + 1}/{total_pages})\n\n"
+    for i, bot in enumerate(page_bots, start=1):
+        text += (
+            f"📝 <b>Лот {start_idx + i}</b>\n"
+            f"Описание: {bot.description}\n"
+            f"Дополнительно: {bot.link}\n"
+            f"👤 Автор: @{bot.username}\n"
+            f"⭐ Рейтинг: {bot.rating} ({bot.votes} оценок)\n\n"
+        )
+    
+    builder = InlineKeyboardBuilder()
+    for i, bot in enumerate(page_bots, start=1):
+        builder.row(InlineKeyboardButton(
+            text=f"⭐ Оценить лот №{start_idx + i}",
+            callback_data=f"choose_rate:{category}:{start_idx + i - 1}"
+        ))
+    
+    builder.row(
+        InlineKeyboardButton(text="⬅️", callback_data=f"nav_prev_{category}_{page}"),
+        InlineKeyboardButton(text="➡️", callback_data=f"nav_next_{category}_{page}"),
+    )
+    builder.row(InlineKeyboardButton(
+        text="🏷 Категории", 
+        callback_data=f"role_{role}"
+    ))
+    
+    if message.text:  # Если это новое сообщение
+        await message.answer(text, reply_markup=builder.as_markup())
+    else:  # Если редактируем существующее
+        await message.edit_text(text, reply_markup=builder.as_markup())
+
+@router.callback_query(F.data.startswith("nav_"))
+async def nav_handler(callback: CallbackQuery, state: FSMContext):
+    data_parts = callback.data.split("_")
+    action = data_parts[1]
+    category = data_parts[2]
+    current_page = int(data_parts[3])
+    
+    # Получаем роль из состояния
+    user_data = await state.get_data()
+    role = user_data.get('role', 'buyer')
+    
+    bots = data[category]
+    ITEMS_PER_PAGE = 3
+    total_pages = (len(bots) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    
+    new_page = current_page - 1 if action == "prev" else current_page + 1
+    new_page = max(0, min(new_page, total_pages-1))
+    
+    # Сохраняем текущую страницу в состоянии
+    await state.update_data(current_page=new_page, current_category=category)
+    
+    # Проверяем, изменилась ли страница
+    if new_page != current_page:
+        await show_bot_page(callback.message, category, new_page, role)
+    await callback.answer()
+
+# Исправляем переход по категориям
+@router.callback_query(F.data.startswith("category_"))
+async def category_handler(callback: CallbackQuery, state: FSMContext):
+    _, role, category = callback.data.split("_", 2)
+    bots = data[category]
+    
+    if role == 'seller':
+        await state.set_state(Form.add_description)
+        await state.update_data(category=category)
+        await callback.message.answer("📝 Введите описание бота (макс. 100 символов):")
     else:
-        bot.send_message(message.chat.id, "У вас нет прав для выполнения этой команды. 🚫")
+        if not bots:
+            await callback.answer("😔 В этой категории пока пусто", show_alert=True)
+            return
+        await show_bot_page(callback.message, category, 0, role)
 
-# Запуск бота
-bot.polling(none_stop=True)
+# Модифицируем клавиатуру
+def bot_card_kb(bot_data: BotData, page: int, category: str, role: str):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(
+        text=f"⭐ {bot_data.rating} ({bot_data.votes})",
+        callback_data=f"choose_rate_{bot_data.link}"))  # Изменено на выбор оценки
+    builder.row(
+        InlineKeyboardButton(text="⬅️", callback_data=f"nav_prev_{category}_{page}"),
+        InlineKeyboardButton(text="➡️", callback_data=f"nav_next_{category}_{page}"),
+    )
+    builder.row(InlineKeyboardButton(
+        text="🏷 Категории", 
+        callback_data=f"role_{role}"))
+    return builder.as_markup()
+
+@router.callback_query(F.data.startswith("choose_rate:"))
+async def choose_rate_handler(callback: CallbackQuery, state: FSMContext):
+    # Парсим данные из callback_data
+    _, category, bot_index = callback.data.split(":", 2)  # Используем двоеточие как разделитель
+    bot_index = int(bot_index)  # Индекс лота в общем списке
+    
+    # Получаем лот по индексу
+    bot = data[category][bot_index]
+    
+    # Проверяем, оценивал ли пользователь этого бота
+    user_id = callback.from_user.id
+    if hasattr(bot, 'rated_by') and user_id in bot.rated_by:
+        await callback.answer("❌ Вы уже оценивали этого бота!", show_alert=True)
+        return
+    
+    # Сохраняем данные для оценки
+    await state.update_data(
+        rate_bot_category=category,
+        rate_bot_index=bot_index,
+        original_message_id=callback.message.message_id
+    )
+    
+    # Создаем клавиатуру для выбора оценки
+    builder = InlineKeyboardBuilder()
+    for i in range(1, 6):
+        builder.add(InlineKeyboardButton(text=str(i), callback_data=f"set_rate:{i}"))  # Используем двоеточие
+    builder.adjust(5)
+    
+    await callback.message.answer(
+        "🌟 Выберите оценку от 1 до 5:",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(Form.rate_bot)
+    
+@router.callback_query(Form.rate_bot, F.data.startswith("set_rate:"))
+async def set_rate_handler(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    rate = int(callback.data.split(":", 1)[1])  # Получаем выбранную оценку
+    user_data = await state.get_data()
+    category = user_data['rate_bot_category']
+    bot_index = user_data['rate_bot_index']
+    user_id = callback.from_user.id
+    
+    # Получаем лот по индексу
+    bot_data = data[category][bot_index]
+    
+    # Проверяем, оценивал ли пользователь этого бота
+    if hasattr(bot_data, 'rated_by') and user_id in bot_data.rated_by:
+        await callback.answer("❌ Вы уже оценивали этого бота!", show_alert=True)
+        await state.clear()
+        return
+    
+    # Обновляем рейтинг
+    if not hasattr(bot_data, 'rated_by'):
+        bot_data.rated_by = []
+    bot_data.rated_by.append(user_id)
+    bot_data.votes += 1
+    bot_data.rating = round((bot_data.rating * (bot_data.votes - 1) + rate) / bot_data.votes, 1)
+    save_data(data)
+    
+    # Удаляем сообщение с выбором оценки
+    await bot.delete_message(callback.message.chat.id, callback.message.message_id)
+    
+    # Возвращаемся к исходному сообщению
+    original_message_id = user_data['original_message_id']
+    try:
+        await bot.delete_message(callback.message.chat.id, original_message_id)
+    except:
+        pass
+    
+    # Обновляем сообщение с лотами
+    await callback.answer(f"✅ Спасибо за оценку {rate}!", show_alert=True)
+    await state.clear()
+    
+    # Показываем обновленный список лотов
+    await show_bot_page(
+        callback.message, 
+        category, 
+        user_data.get('current_page', 0), 
+        user_data.get('role', 'buyer')
+    )
+    
+@router.callback_query(F.data.startswith("rate_"))
+async def rate_handler(callback: CallbackQuery):
+    link = callback.data.split("_", 1)[1]
+    for cat in data.values():
+        for bot in cat:
+            if bot.link == link:
+                bot.votes += 1
+                bot.rating = round((bot.rating * (bot.votes - 1) + 5) / bot.votes, 1)
+                save_data(data)
+                await callback.answer("✅ Спасибо за оценку!")
+                return
+    await callback.answer("❌ Бот не найден")
+
+@router.callback_query(F.data == "my_bots")
+async def my_bots_handler(callback: CallbackQuery):
+    user_bots = []
+    for cat in data.values():
+        for bot in cat:
+            if bot.username == callback.from_user.username:
+                user_bots.append(bot)
+    
+    if not user_bots:
+        await callback.answer("❌ У вас нет зарегистрированных ботов", show_alert=True)
+        return
+    
+    builder = InlineKeyboardBuilder()
+    for bot in user_bots:
+        builder.row(InlineKeyboardButton(
+            text=f"❌ {bot.description[:20]}",
+            callback_data=f"delete_{user_bots.index(bot)}"))  # Передаем индекс вместо ссылки
+    builder.row(InlineKeyboardButton(text="Назад", callback_data="role_seller"))
+    
+    await callback.message.edit_text(
+        "🗑 Ваши боты:\n" + "\n".join([f"• {bot.description}" for bot in user_bots]),
+        reply_markup=builder.as_markup()
+    )
+
+@router.callback_query(F.data.startswith("delete_"))
+async def delete_handler(callback: CallbackQuery):
+    bot_index = int(callback.data.split("_", 1)[1])  # Получаем индекс лота
+    user_bots = []
+    for cat in data.values():
+        for bot in cat:
+            if bot.username == callback.from_user.username:
+                user_bots.append(bot)
+    
+    if bot_index < len(user_bots):
+        bot_to_delete = user_bots[bot_index]
+        for cat in data.values():
+            if bot_to_delete in cat:
+                cat.remove(bot_to_delete)
+                save_data(data)
+                await callback.answer("✅ Бот удален")
+                await my_bots_handler(callback)
+                return
+    await callback.answer("❌ Бот не найден")
+
+@router.callback_query(F.data == "search")
+async def search_handler(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("🔍 Введите поисковый запрос:")
+    await state.set_state(Form.search)
+
+@router.message(Form.search)
+async def process_search(message: Message, state: FSMContext):
+    query = message.text.lower()
+    results = []
+    
+    for cat_name, bots in data.items():
+        for bot in bots:
+            if (query in bot.description.lower()) or (query in bot.link.lower()):
+                results.append((cat_name, bot))
+    
+    await state.clear()
+    
+    if not results:
+        await message.answer("😔 Ничего не найдено")
+        return
+    
+    # Сохраняем результаты поиска в состояние
+    await state.update_data(search_results=results)
+    
+    builder = InlineKeyboardBuilder()
+    for idx, (cat, bot) in enumerate(results):
+        btn_text = f"{cat}: {bot.description[:20]}" if bot.description else f"{cat}: Без описания"
+        builder.row(InlineKeyboardButton(
+            text=btn_text,
+            callback_data=f"show_search_result:{idx}"  # Передаем индекс результата
+        ))
+    
+    builder.row(InlineKeyboardButton(text="Назад", callback_data="role_buyer"))
+    
+    await message.answer(
+        f"🔍 Найдено {len(results)} результатов:",
+        reply_markup=builder.as_markup()
+    )
+
+@router.callback_query(F.data.startswith("show_search_result:"))
+async def show_search_result(callback: CallbackQuery, state: FSMContext):
+    result_index = int(callback.data.split(":", 1)[1])  # Получаем индекс результата
+    
+    # Получаем сохраненные результаты поиска из состояния
+    user_data = await state.get_data()
+    results = user_data.get("search_results", [])
+    
+    if result_index < len(results):
+        cat, bot = results[result_index]
+        
+        # Находим страницу, на которой находится лот
+        bots_in_category = data[cat]
+        page = bots_in_category.index(bot) // ITEMS_PER_PAGE
+        
+        # Обновляем состояние
+        await state.update_data(
+            current_category=cat,
+            current_page=page,
+            role="buyer"
+        )
+        
+        # Показываем страницу с лотом
+        await show_bot_page(callback.message, cat, page, "buyer")
+    else:
+        await callback.answer("❌ Лот не найден", show_alert=True)
+
+async def main():
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(main())
