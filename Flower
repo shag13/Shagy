@@ -18,7 +18,7 @@ ORDER_QUANTITY = 7
 EDIT_QUANTITY = 8
 
 # ID администратора (замените на ваш Telegram ID)
-ADMIN_ID = os.getenv(int(ADMIN_ID)) # Пример ID администратора
+ADMIN_ID = int(os.getenv('ADMIN_ID')) # Пример ID администратора
 token = os.getenv('TOKEN_FLOWER')
 
 # Загрузка данных из JSON
