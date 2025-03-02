@@ -1,0 +1,633 @@
+import json
+import os
+from dotenv import load_dotenv
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+
+# Путь к файлам JSON
+DATA_FILE = "flowers_data2.json"
+ORDERS_FILE = "user_orders2.json"
+DELIVERY_FILE = "delivery_status2.json"
+load_dotenv()
+
+# Состояния для добавления, изменения и удаления товара
+ADD_NAME, ADD_DESCRIPTION, ADD_PRICE = range(3)
+EDIT_NAME, EDIT_DESCRIPTION, EDIT_PRICE = range(3, 6)
+DELETE_CONFIRM = 6
+ORDER_QUANTITY = 7
+EDIT_QUANTITY = 8
+
+# ID администратора (замените на ваш Telegram ID)
+ADMIN_ID = os.getenv(int(ADMIN_ID)) # Пример ID администратора
+token = os.getenv('TOKEN_FLOWER')
+
+# Загрузка данных из JSON
+# Загрузка данных из JSON
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            # Добавляем поле image_id, если его нет
+            for flower in data["flowers"]:
+                if "image_id" not in flower:
+                    flower["image_id"] = None
+            return data
+    return {"flowers": []}
+
+# Сохранение данных в JSON
+def save_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=4)
+
+# Загрузка заказов пользователя
+def load_orders(user_id):
+    if os.path.exists(ORDERS_FILE):
+        with open(ORDERS_FILE, "r", encoding="utf-8") as file:
+            orders = json.load(file)
+            return orders.get(str(user_id), [])
+    return []
+
+# Сохранение заказов пользователя
+def save_orders(user_id, orders):
+    if os.path.exists(ORDERS_FILE):
+        with open(ORDERS_FILE, "r", encoding="utf-8") as file:
+            all_orders = json.load(file)
+    else:
+        all_orders = {}
+    all_orders[str(user_id)] = orders
+    with open(ORDERS_FILE, "w", encoding="utf-8") as file:
+        json.dump(all_orders, file, ensure_ascii=False, indent=4)
+
+# Загрузка статуса доставки
+def load_delivery_status(user_id):
+    if os.path.exists(DELIVERY_FILE):
+        with open(DELIVERY_FILE, "r", encoding="utf-8") as file:
+            delivery = json.load(file)
+            return delivery.get(str(user_id), [])
+    return []
+
+# Сохранение статуса доставки
+def save_delivery_status(user_id, delivery):
+    if os.path.exists(DELIVERY_FILE):
+        with open(DELIVERY_FILE, "r", encoding="utf-8") as file:
+            all_delivery = json.load(file)
+    else:
+        all_delivery = {}
+    all_delivery[str(user_id)] = delivery
+    with open(DELIVERY_FILE, "w", encoding="utf-8") as file:
+        json.dump(all_delivery, file, ensure_ascii=False, indent=4)
+
+# Главное меню
+# Главное меню
+# Главное меню
+async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Каталог", callback_data="catalog")],
+        [InlineKeyboardButton("Мои заказы", callback_data="my_orders")],
+        [InlineKeyboardButton("Статус доставки", callback_data="delivery_status")],
+        [InlineKeyboardButton("Промокоды", callback_data="promo_codes")],
+        [InlineKeyboardButton("Напоминания", callback_data="reminders")],  # Новая кнопка
+    ]
+    if update.callback_query:
+        await update.callback_query.edit_message_text("Главное меню:", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("Приветствуем вас в демо-магазине цветов! Изучите функционал, соберите заказ, примените промокод (Code ;))\n\nПункты меню с функционалом можно менять. \n\nТут реализован функционал интернет-магазина цветов.", reply_markup=InlineKeyboardMarkup(keyboard))
+        
+# Обработка кнопки "Назад"
+async def back_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if "state" in context.user_data:
+        context.user_data.clear()  # Сброс состояния ввода
+
+    # Отправляем новое сообщение с главным меню
+    keyboard = [
+        [InlineKeyboardButton("Каталог", callback_data="catalog")],
+        [InlineKeyboardButton("Мои заказы", callback_data="my_orders")],
+        [InlineKeyboardButton("Статус доставки", callback_data="delivery_status")],
+        [InlineKeyboardButton("Промокоды", callback_data="promo_codes")],
+        [InlineKeyboardButton("Напоминания", callback_data="reminders")],
+    ]
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="Главное меню:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+        
+# Каталог товаров
+async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = load_data()
+    keyboard = [
+        [InlineKeyboardButton(flower["name"], callback_data=f"flower_{i}")] for i, flower in enumerate(data["flowers"])
+    ]
+    keyboard.append([InlineKeyboardButton("Назад", callback_data="main_menu")])
+    if update.callback_query:
+        await update.callback_query.edit_message_text("Каталог цветов можно разбить по группам. \n\nАдминистратор магазина может добавлять, удалять, изменять карточки товаров; редактиповать стоимость", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("Каталог цветов можно разбить по группам. \n\nАдминистратор магазина может добавлять, удалять, изменять карточки товаров; редактиповать стоимость.", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Просмотр карточки товара
+# Просмотр карточки товара
+# Просмотр карточки товара
+# Просмотр карточки товара
+async def view_flower(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    flower_index = int(query.data.split("_")[1])
+    data = load_data()
+    flower = data["flowers"][flower_index]
+
+    # Формируем текст карточки
+    text = f"Название: {flower['name']}\nОписание: {flower['description']}\nЦена: {flower['price']}"
+
+    # Формируем клавиатуру
+    keyboard = [[InlineKeyboardButton("Заказать", callback_data=f"order_{flower_index}")]]
+    if update.callback_query.from_user.id == ADMIN_ID:
+        keyboard.append([InlineKeyboardButton("Изменить", callback_data=f"edit_{flower_index}")])
+        keyboard.append([InlineKeyboardButton("Удалить", callback_data=f"delete_{flower_index}")])
+    keyboard.append([InlineKeyboardButton("Назад", callback_data="back")])
+
+    # Если есть картинка, отправляем её
+    if flower["image_id"]:
+        await context.bot.send_photo(
+            chat_id=query.message.chat_id,
+            photo=flower["image_id"],
+            caption=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+    else:
+        # Если картинки нет, отправляем текстовое сообщение
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        
+# Заказ товара
+# Заказ товара
+# Заказ товара
+async def order_flower(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    flower_index = int(query.data.split("_")[1])
+    context.user_data["flower_index"] = flower_index
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="Введите количество:",
+    )
+    context.user_data["state"] = ORDER_QUANTITY
+
+# Обработка ввода количества
+async def handle_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    quantity = update.message.text
+
+    if not quantity.isdigit():
+        await update.message.reply_text("Пожалуйста, введите число.")
+        return
+
+    flower_index = context.user_data.get("flower_index")
+    if flower_index is None:
+        await update.message.reply_text("Ошибка: товар не найден.")
+        return
+
+    data = load_data()
+    flower = data["flowers"][flower_index]
+
+    orders = load_orders(user_id)
+    orders.append({"name": flower["name"], "quantity": int(quantity), "price": flower["price"]})
+    save_orders(user_id, orders)
+
+    await update.message.reply_text(f"Вы заказали {flower['name']} в количестве {quantity} шт.")
+    await main_menu(update, context)
+
+# Мои заказы
+async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.callback_query.from_user.id if update.callback_query else update.message.from_user.id
+    orders = load_orders(user_id)
+
+    if not orders:
+        await update.callback_query.edit_message_text("Ваша корзина пуста. Выберите товар из каталога для просмотра функционала корзины.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="main_menu")]]))
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(f"{order['name']} - {order['quantity']}шт", callback_data=f"edit_order_{i}")] for i, order in enumerate(orders)
+    ]
+    keyboard.append([InlineKeyboardButton("Оформить заказ", callback_data="checkout")])
+    keyboard.append([InlineKeyboardButton("Назад", callback_data="main_menu")])
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text("Вы можете нажать кнопку Оформить заказ для просмотра итоговой суммы и возможности оплаты, либо добавить в заказ что-то еще.\n\nВаши заказы:", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("Вы можете нажать кнопку Оформить заказ для просмотра итоговой суммы и возможности оплаты, либо добавить в заказ что-то еще.\n\nВаши заказы:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Изменение количества товара в заказе
+async def edit_order_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    order_index = int(query.data.split("_")[2])
+    context.user_data["order_index"] = order_index
+    await query.edit_message_text("Введите новое количество:")
+    context.user_data["state"] = EDIT_QUANTITY
+
+# Обработка ввода нового количества
+async def handle_edit_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    quantity = update.message.text
+
+    if not quantity.isdigit():
+        await update.message.reply_text("Пожалуйста, введите число.")
+        return
+
+    order_index = context.user_data["order_index"]
+    orders = load_orders(user_id)
+    orders[order_index]["quantity"] = int(quantity)
+    save_orders(user_id, orders)
+
+    await update.message.reply_text(f"Количество изменено на {quantity} шт.")
+    await my_orders(update, context)
+
+# Оформление заказа
+async def checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    orders = load_orders(user_id)
+
+    total = sum(int(order["price"].replace(" руб.", "")) * order["quantity"] for order in orders)
+    keyboard = [
+        [InlineKeyboardButton("Оплатить", callback_data="pay")],
+        [InlineKeyboardButton("Назад", callback_data="my_orders")],
+    ]
+    await query.edit_message_text(f"К оплате: {total} рублей.", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Оплата заказа
+async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    orders = load_orders(user_id)
+
+    # Генерация номера заказа
+    delivery_status = load_delivery_status(user_id)
+    order_number = 103 + len(delivery_status)
+    delivery_status.append({"order_number": order_number, "status": "Собирается", "orders": orders})
+    save_delivery_status(user_id, delivery_status)
+
+    save_orders(user_id, [])  # Очистка корзины
+
+    await query.edit_message_text("Товары оплачены. Спасибо за покупку!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="main_menu")]]))
+
+# Статус доставки
+async def delivery_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.callback_query.from_user.id if update.callback_query else update.message.from_user.id
+    delivery = load_delivery_status(user_id)
+
+    if not delivery:
+        await update.callback_query.edit_message_text("У вас нет активных заказов.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="main_menu")]]))
+        return
+
+    text = "\n".join([f"Заказ #{order['order_number']}. Статус - {order['status']}" for order in delivery])
+    keyboard = [[InlineKeyboardButton("Назад", callback_data="main_menu")]]
+    await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Админ: Добавление товара
+async def add_flower(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("У вас нет прав администратора.")
+        return
+
+    await update.message.reply_text("Введите название цветка:")
+    context.user_data["state"] = ADD_NAME
+
+# Админ: Изменение товара
+async def edit_flower(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    flower_index = int(query.data.split("_")[1])
+    context.user_data["flower_index"] = flower_index
+    await query.edit_message_text("Введите новое название цветка:")
+    context.user_data["state"] = EDIT_NAME
+
+# Админ: Удаление товара
+async def delete_flower(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    flower_index = int(query.data.split("_")[1])
+    data = load_data()
+    data["flowers"].pop(flower_index)
+    save_data(data)
+    await query.edit_message_text("Товар успешно удален!")
+    await catalog(update, context)
+    
+# Обработка нажатия на кнопку "Промокоды"
+async def promo_codes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text("Если вы вдруг забыли (а вы точно забыли), промокод - слово Code\n\nВведите промокод:")
+    context.user_data["state"] = "awaiting_promo_code"  # Устанавливаем состояние ожидания промокода
+    
+# Обработка ввода промокода
+async def handle_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    promo_code = update.message.text.strip()
+
+    if promo_code == "Code":
+        # Применяем скидку 10% ко всем товарам
+        data = load_data()
+        for flower in data["flowers"]:
+            original_price = int(flower["price"].replace(" руб.", ""))
+            discounted_price = original_price * 0.9  # Скидка 10%
+            flower["price"] = f"{int(discounted_price)} руб."
+        save_data(data)
+
+        await update.message.reply_text("Промокод применен! На весь ассортимент действует скидка 10%.")
+    else:
+        await update.message.reply_text("Неверный промокод.")
+
+    # Сбрасываем состояние
+    context.user_data.pop("state", None)
+    await main_menu(update, context)
+    
+# Обработка нажатия на кнопку "Напоминания"
+async def reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    keyboard = [
+        [InlineKeyboardButton("Добавить напоминание", callback_data="add_reminder")],
+        [InlineKeyboardButton("Просмотр напоминаний", callback_data="view_reminders")],
+        [InlineKeyboardButton("Назад", callback_data="main_menu")],
+    ]
+    await query.edit_message_text("Эта возможность в магазине нужна, допустим, чтобы напоминать пользователю о праздниках, днях рождения - бот в указанную самим пользователем дату будет присылать указанное самим пользователем уведомление из вашего интернет-магазина, тем самым `приглашая` его снова посетить вашего бота.\n\nВы можете попробовать установить напоминание, просмотреть напоминание.\nУдаление напоминания реализовано простым нажатием на него", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+# Обработка нажатия на кнопку "Добавить напоминание"
+async def add_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text("Введите название напоминания:")
+    context.user_data["state"] = "awaiting_reminder_name"  # Устанавливаем состояние ожидания названия
+    
+# Обработка нажатия на кнопку "Просмотр напоминаний"
+async def view_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    reminders = load_reminders(user_id)
+
+    if not reminders:
+        await query.edit_message_text("У вас нет активных напоминаний. Установите напоминание в `Добавить напоминание`", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="reminders")]]))
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(f"{reminder['name']} - {reminder['date']}", callback_data=f"delete_reminder_{i}")] for i, reminder in enumerate(reminders)
+    ]
+    keyboard.append([InlineKeyboardButton("Назад", callback_data="reminders")])
+
+    await query.edit_message_text("Ваши напоминания:", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+# Обработка ввода напоминания
+async def handle_reminder_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    state = context.user_data.get("state")
+
+    if state == "awaiting_reminder_name":
+        context.user_data["reminder_name"] = update.message.text
+        await update.message.reply_text("Введите дату и время напоминания в формате ДД.ММ.ГГГГ ЧЧ:ММ:")
+        context.user_data["state"] = "awaiting_reminder_date"
+    elif state == "awaiting_reminder_date":
+        try:
+            date_str = update.message.text
+            from datetime import datetime
+            reminder_date = datetime.strptime(date_str, "%d.%m.%Y %H:%M")
+            context.user_data["reminder_date"] = reminder_date
+
+            # Сохраняем напоминание
+            reminders = load_reminders(user_id)
+            reminders.append({
+                "name": context.user_data["reminder_name"],
+                "date": date_str,
+                "timestamp": reminder_date.timestamp(),
+            })
+            save_reminders(user_id, reminders)
+
+            # Планируем уведомление
+            from telegram.constants import ParseMode
+            from telegram import Bot
+            bot = Bot(token="YOUR_BOT_TOKEN")
+            context.job_queue.run_once(
+                send_reminder,
+                when=reminder_date.timestamp() - datetime.now().timestamp(),
+                chat_id=user_id,
+                data=context.user_data["reminder_name"],
+            )
+
+            await update.message.reply_text("Напоминание успешно добавлено!")
+            context.user_data.clear()
+            await main_menu(update, context)
+        except ValueError:
+            await update.message.reply_text("Неверный формат даты. Введите дату и время в формате ДД.ММ.ГГГГ ЧЧ:ММ. - например, 10.04.2025 10:00")
+            
+# Отправка напоминания
+async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    await context.bot.send_message(job.chat_id, text=f"Напоминание: {job.data}")
+    
+# Обработка удаления напоминания
+async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    reminder_index = int(query.data.split("_")[2])
+    user_id = query.from_user.id
+    reminders = load_reminders(user_id)
+    reminders.pop(reminder_index)
+    save_reminders(user_id, reminders)
+
+    await query.edit_message_text("Напоминание удалено!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="reminders")]]))
+    
+# Загрузка напоминаний
+def load_reminders(user_id):
+    if os.path.exists("reminders.json"):
+        with open("reminders.json", "r", encoding="utf-8") as file:
+            reminders = json.load(file)
+            return reminders.get(str(user_id), [])
+    return []
+
+# Сохранение напоминаний
+def save_reminders(user_id, reminders):
+    if os.path.exists("reminders.json"):
+        with open("reminders.json", "r", encoding="utf-8") as file:
+            all_reminders = json.load(file)
+    else:
+        all_reminders = {}
+    all_reminders[str(user_id)] = reminders
+    with open("reminders.json", "w", encoding="utf-8") as file:
+        json.dump(all_reminders, file, ensure_ascii=False, indent=4)
+
+# Обработка сообщений для администратора
+async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id != ADMIN_ID:
+        return
+
+    state = context.user_data.get("state")
+    data = load_data()
+
+    if state == ADD_NAME:
+        context.user_data["name"] = update.message.text
+        await update.message.reply_text("Введите описание цветка:")
+        context.user_data["state"] = ADD_DESCRIPTION
+
+    elif state == ADD_DESCRIPTION:
+        context.user_data["description"] = update.message.text
+        await update.message.reply_text("Введите цену цветка:")
+        context.user_data["state"] = ADD_PRICE
+
+    elif state == ADD_PRICE:
+        context.user_data["price"] = update.message.text
+        data["flowers"].append({
+            "name": context.user_data["name"],
+            "description": context.user_data["description"],
+            "price": context.user_data["price"],
+        })
+        save_data(data)
+        await update.message.reply_text("Цветок успешно добавлен!")
+        context.user_data.clear()
+
+    elif state == EDIT_NAME:
+        flower_index = context.user_data["flower_index"]
+        data["flowers"][flower_index]["name"] = update.message.text
+        save_data(data)
+        await update.message.reply_text("Введите новое описание цветка:")
+        context.user_data["state"] = EDIT_DESCRIPTION
+
+    elif state == EDIT_DESCRIPTION:
+        flower_index = context.user_data["flower_index"]
+        data["flowers"][flower_index]["description"] = update.message.text
+        save_data(data)
+        await update.message.reply_text("Введите новую цену цветка:")
+        context.user_data["state"] = EDIT_PRICE
+
+    elif state == EDIT_PRICE:
+        flower_index = context.user_data["flower_index"]
+        data["flowers"][flower_index]["price"] = update.message.text
+        save_data(data)
+        await update.message.reply_text("Цветок успешно изменен!")
+        context.user_data.clear()
+
+# Основная функция
+# Обработка сообщений
+# Обработка сообщений
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    state = context.user_data.get("state")
+
+    # Если пользователь администратор и находится в состоянии добавления/изменения товара
+    if user_id == ADMIN_ID and state in (ADD_NAME, ADD_DESCRIPTION, ADD_PRICE, EDIT_NAME, EDIT_DESCRIPTION, EDIT_PRICE):
+        await handle_admin_message(update, context)
+    # Если пользователь в состоянии заказа (ввод количества)
+    elif state == ORDER_QUANTITY:
+        await handle_quantity(update, context)
+    # Если пользователь в состоянии изменения количества в заказе
+    elif state == EDIT_QUANTITY:
+        await handle_edit_quantity(update, context)
+    # Если пользователь в состоянии ожидания промокода
+    elif state == "awaiting_promo_code":
+        await handle_promo_code(update, context)
+    # Если пользователь в состоянии ожидания названия или даты напоминания
+    elif state in ("awaiting_reminder_name", "awaiting_reminder_date"):
+        await handle_reminder_input(update, context)
+    # Если пользователь в состоянии ожидания названия товара для привязки картинки
+    elif state == "awaiting_flower_name_for_image":
+        await handle_flower_name_for_image(update, context)
+    # Иначе игнорируем сообщение
+    else:
+        await update.message.reply_text("Пожалуйста, используйте кнопки для взаимодействия с ботом.")
+
+# Обработка загрузки картинки
+async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("У вас нет прав администратора.")
+        return
+
+    # Сохраняем ID картинки
+    photo = update.message.photo[-1]  # Берем самую большую версию картинки
+    context.user_data["image_id"] = photo.file_id
+
+    await update.message.reply_text("Введите название товара, к которому нужно привязать картинку:")
+    context.user_data["state"] = "awaiting_flower_name_for_image"
+    
+# Обработка ввода названия товара для привязки картинки
+async def handle_flower_name_for_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("У вас нет прав администратора.")
+        return
+
+    flower_name = update.message.text.strip()
+    data = load_data()
+
+    # Ищем товар с указанным названием
+    flower_found = False
+    for flower in data["flowers"]:
+        if flower["name"].lower() == flower_name.lower():
+            flower["image_id"] = context.user_data["image_id"]
+            flower_found = True
+            break
+
+    if flower_found:
+        save_data(data)
+        await update.message.reply_text(f"Картинка успешно привязана к товару '{flower_name}'!")
+    else:
+        await update.message.reply_text(f"Товар с названием '{flower_name}' не найден.")
+
+    # Сбрасываем состояние
+    context.user_data.clear()
+    await main_menu(update, context)
+    
+    
+# Основная функция
+# Основная функция
+# Основная функция
+def main():
+    application = Application.builder().token("token").build()
+
+    application.add_handler(CommandHandler("start", main_menu))
+    application.add_handler(CallbackQueryHandler(main_menu, pattern="^main_menu$"))
+    application.add_handler(CallbackQueryHandler(catalog, pattern="^catalog$"))
+    application.add_handler(CallbackQueryHandler(view_flower, pattern="^flower_"))
+    application.add_handler(CallbackQueryHandler(order_flower, pattern="^order_"))
+    application.add_handler(CallbackQueryHandler(edit_order_quantity, pattern="^edit_order_"))
+    application.add_handler(CallbackQueryHandler(checkout, pattern="^checkout$"))
+    application.add_handler(CallbackQueryHandler(pay, pattern="^pay$"))
+    application.add_handler(CallbackQueryHandler(my_orders, pattern="^my_orders$"))
+    application.add_handler(CallbackQueryHandler(delivery_status, pattern="^delivery_status$"))
+    application.add_handler(CallbackQueryHandler(promo_codes, pattern="^promo_codes$"))
+    application.add_handler(CallbackQueryHandler(reminders, pattern="^reminders$"))
+    application.add_handler(CallbackQueryHandler(add_reminder, pattern="^add_reminder$"))
+    application.add_handler(CallbackQueryHandler(view_reminders, pattern="^view_reminders$"))
+    application.add_handler(CallbackQueryHandler(delete_reminder, pattern="^delete_reminder_"))
+    application.add_handler(CommandHandler("add", add_flower))
+    application.add_handler(CallbackQueryHandler(edit_flower, pattern="^edit_"))
+    application.add_handler(CallbackQueryHandler(delete_flower, pattern="^delete_"))
+    application.add_handler(CallbackQueryHandler(back_button, pattern="^back$"))  # Новый обработчик
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
+
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
