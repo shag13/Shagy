@@ -622,7 +622,7 @@ async def say(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Сообщение отправлено {len(users)} пользователям.")
 
 def main():
-    application = Application.builder().token("token").build()
+    application = Application.builder().token(token).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("ex", export_to_excel))  # Добавляем обработчик команды /ex
