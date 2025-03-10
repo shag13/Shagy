@@ -1,0 +1,636 @@
+from dotenv import load_dotenv
+import os
+import json
+import logging
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+import openpyxl
+
+# Настройка логирования
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+load_dotenv()
+# ID админа (замените на ваш ID)
+ADMIN_ID = int(os.getenv("ADMIN_ID"))  # Пример ID админа
+token = os.getenv('TOKEN_BARBER')
+# Загрузка базы данных
+def load_database():
+    try:
+        with open('database.json', 'r') as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"masters": {}}
+
+def save_database(db):
+    with open('database.json', 'w') as file:
+        json.dump(db, file, indent=4)
+
+def load_masters():
+    try:
+        with open('masters.json', 'r') as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def load_services():
+    try:
+        with open('services.json', 'r') as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def save_services(services):
+    with open('services.json', 'w') as file:
+        json.dump(services, file, indent=4)
+
+def load_gallery():
+    try:
+        with open('gallery.json', 'r') as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def save_gallery(gallery):
+    with open('gallery.json', 'w') as file:
+        json.dump(gallery, file, indent=4)
+
+# Загрузка списка пользователей
+def load_users():
+    try:
+        with open('users.json', 'r') as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+# Сохранение списка пользователей
+def save_users(users):
+    with open('users.json', 'w') as file:
+        json.dump(users, file, indent=4)
+
+# Обработка команды /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    # Загружаем список пользователей
+    users = load_users()
+
+    # Проверяем, что users — это список словарей
+    if not isinstance(users, list):
+        users = []
+
+    # Данные пользователя
+    user_data = {
+        "id": user.id,
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+    }
+
+    # Проверяем, есть ли пользователь в списке
+    user_exists = False
+    for i, u in enumerate(users):
+        if isinstance(u, dict) and u.get("id") == user.id:
+            users[i] = user_data  # Обновляем данные пользователя
+            user_exists = True
+            break
+        elif u == user.id:  # Если users — это список ID
+            users[i] = user_data  # Заменяем ID на словарь с данными
+            user_exists = True
+            break
+
+    # Если пользователь не найден, добавляем его
+    if not user_exists:
+        users.append(user_data)
+
+    # Сохраняем обновленный список пользователей
+    save_users(users)
+
+    # Отправляем главное меню
+    keyboard = [
+        [InlineKeyboardButton("Записаться", callback_data='book')],
+        [InlineKeyboardButton("Когда там?", callback_data='check_booking')],
+        [InlineKeyboardButton("Наши Мастера", callback_data='our_masters')],
+        [InlineKeyboardButton("Галерея", callback_data='gallery')],
+        [InlineKeyboardButton("Услуги и цены", callback_data='services_prices')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        '👋 Добро пожаловать в наш бот-помощник администратора барбершопа!\n\n'
+        'Мы рады, что вы выбрали нас! Здесь вы можете:\n\n'
+        '✅ Записаться к мастеру\n\n'
+        '✅ Узнать о наших услугах и ценах\n\n'
+        '✅ Познакомиться с нашими мастерами\n\n'
+        '✅ Посмотреть работы в галерее\n\n'
+        'Чтобы начать, просто нажмите на кнопку ниже и выберите нужное действие. '
+        'Если у вас есть вопросы, напишите нам — мы всегда готовы помочь!\n'
+        'Спасибо, что вы с нами! 😊',
+        reply_markup=reply_markup
+    )
+    
+async def export_to_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    # Проверяем, что команду вызвал админ
+    if user.id != ADMIN_ID:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        return
+
+    # Загружаем данные пользователей
+    users = load_users()
+
+    # Создаем Excel-таблицу
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Пользователи"
+
+    # Заголовки столбцов
+    ws.append(["ID", "Имя", "Фамилия", "Никнейм", "Телефон"])
+
+    # Заполняем таблицу данными
+    for user_data in users:
+        ws.append([
+            user_data.get("id", ""),
+            user_data.get("first_name", ""),
+            user_data.get("last_name", ""),
+            user_data.get("username", ""),
+            user_data.get("phone", "")
+        ])
+
+    # Сохраняем таблицу
+    excel_file = "users.xlsx"
+    wb.save(excel_file)
+
+    # Отправляем таблицу админу
+    await context.bot.send_document(chat_id=ADMIN_ID, document=open(excel_file, 'rb'))
+
+    await update.message.reply_text("Данные пользователей успешно экспортированы в Excel-таблицу.")
+
+    
+# Обработка нажатия кнопок
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    # Главное меню
+    if query.data == 'menu':
+        # Удаляем старое сообщение (если возможно)
+        try:
+            await query.delete_message()
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение: {e}")
+
+        # Отправляем новое сообщение с главным меню
+        keyboard = [
+            [InlineKeyboardButton("Записаться", callback_data='book')],
+            [InlineKeyboardButton("Когда там?", callback_data='check_booking')],
+            [InlineKeyboardButton("Наши Мастера", callback_data='our_masters')],
+            [InlineKeyboardButton("Галерея", callback_data='gallery')],
+            [InlineKeyboardButton("Услуги и цены", callback_data='services_prices')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text='Главное меню:',
+            reply_markup=reply_markup
+        )
+        return
+
+    # Остальная логика...
+
+    # Услуги и цены
+    if query.data == 'services_prices':
+        context.user_data['current_page'] = 0  # Начинаем с первой страницы
+        await show_services_page(query, context)
+        return
+
+    # Переключение страниц услуг
+    elif query.data == 'next_services_page':
+        context.user_data['current_page'] += 1
+        await show_services_page(query, context)
+        return
+    elif query.data == 'prev_services_page':
+        context.user_data['current_page'] -= 1
+        await show_services_page(query, context)
+        return
+
+    # Информация об услуге
+    elif query.data.startswith('service_info_'):
+        service_name = query.data.split('_')[2]
+        services = load_services()
+        service_info = services[service_name]
+
+        # Формируем сообщение с информацией об услуге
+        message = f"🛎 Услуга: {service_name}\n"
+        message += f"📝 Описание: {service_info['description']}\n"
+        message += f"💵 Стоимость: {service_info['price']} руб."
+
+        # Если есть картинка, отправляем её
+        if service_info.get('image'):
+            await query.message.reply_photo(
+                photo=service_info['image'],
+                caption=message
+            )
+        else:
+            await query.message.reply_text(message)
+
+        # Кнопка возврата к списку услуг
+        keyboard = [[InlineKeyboardButton("Назад к услугам", callback_data='services_prices')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text(text="Что-то ещё?", reply_markup=reply_markup)
+        return
+
+    # Галерея
+    if query.data == 'gallery':
+        context.user_data['current_gallery_page'] = 0  # Начинаем с первой страницы
+        await show_gallery_page(query, context)
+        return
+
+    # Переключение страниц галереи
+    elif query.data == 'next_gallery_page':
+        context.user_data['current_gallery_page'] += 1
+        await show_gallery_page(query, context)
+        return
+    elif query.data == 'prev_gallery_page':
+        context.user_data['current_gallery_page'] -= 1
+        await show_gallery_page(query, context)
+        return
+
+    # Наши Мастера
+    if query.data == 'our_masters':
+        masters = load_masters()
+        message_text = "Наши мастера:\n\n"
+        for master, info in masters.items():
+            message_text += f"👤 {master}\n"
+            message_text += f"{info['about']}\n\n"
+
+        keyboard = [[InlineKeyboardButton("В меню", callback_data='menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text=message_text, reply_markup=reply_markup)
+        return
+
+    # Начало записи
+    if query.data == 'book':
+        keyboard = [
+            [InlineKeyboardButton("Иван", callback_data='master_Иван')],
+            [InlineKeyboardButton("Евгений", callback_data='master_Евгений')],
+            [InlineKeyboardButton("Татьяна", callback_data='master_Татьяна')],
+            [InlineKeyboardButton("В меню", callback_data='menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text="Выбери мастера:", reply_markup=reply_markup)
+        return
+
+    # Выбор мастера
+    elif query.data.startswith('master_'):
+        master = query.data.split('_')[1]
+        context.user_data['master'] = master
+
+        # Загружаем услуги из services.json
+        services = load_services()
+
+        # Формируем кнопки с услугами
+        keyboard = []
+        for service_name in services.keys():
+            keyboard.append([InlineKeyboardButton(service_name, callback_data=f'service_{service_name}')])
+
+        keyboard.append([InlineKeyboardButton("В меню", callback_data='menu')])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text="Выберите услугу:", reply_markup=reply_markup)
+        return
+
+    # Выбор услуги
+    elif query.data.startswith('service_'):
+        service_name = query.data.split('_')[1]
+        context.user_data['service'] = service_name
+
+        # Загружаем информацию об услуге
+        services = load_services()
+        service_info = services[service_name]
+
+        # Формируем сообщение с информацией
+        message = f"🛎 Услуга: {service_name}\n"
+        message += f"📝 Описание: {service_info['description']}\n"
+        message += f"💵 Стоимость: {service_info['price']} руб."
+
+        # Отправляем фото если есть
+        if service_info.get('image'):
+            await query.message.reply_photo(
+                photo=service_info['image'],
+                caption=message
+            )
+        else:
+            await query.message.reply_text(message)
+
+        # Переходим к выбору даты
+        today = datetime.now().date()
+        keyboard = []
+        for i in range(7):
+            date = today + timedelta(days=i)
+            keyboard.append([InlineKeyboardButton(date.strftime("%d.%m.%Y"),
+                          callback_data=f'date_{date.strftime("%Y-%m-%d")}')])
+
+        keyboard.append([InlineKeyboardButton("В меню", callback_data='menu')])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text(text="Выберите дату:", reply_markup=reply_markup)
+        return
+
+    # Выбор даты
+    elif query.data.startswith('date_'):
+        selected_date = query.data.split('_')[1]
+        context.user_data['date'] = selected_date
+        master = context.user_data['master']
+        db = load_database()
+
+        # Формируем доступные временные слоты
+        now = datetime.now()
+        keyboard = []
+        for hour in range(9, 21):
+            time_slot = f"{hour:02d}:00"
+            slot_datetime = datetime.strptime(f"{selected_date} {time_slot}", "%Y-%m-%d %H:%M")
+
+            # Проверяем доступность времени
+            is_available = (
+                slot_datetime > now and
+                not db["masters"][master].get(selected_date, {}).get(time_slot)
+            )
+            if is_available:
+                keyboard.append([InlineKeyboardButton(time_slot, callback_data=f'time_{time_slot}')])
+
+        # Добавляем кнопку возврата
+        keyboard.append([InlineKeyboardButton("Назад", callback_data='book')])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text="Выбери время:", reply_markup=reply_markup)
+        return
+
+    # Выбор времени
+    elif query.data.startswith('time_'):
+        time = query.data.split('_')[1]
+        master = context.user_data['master']
+        service = context.user_data['service']
+        date = context.user_data['date']
+        user = update.effective_user
+        db = load_database()
+        if master in db["masters"] and date in db["masters"][master] and time in db["masters"][master][date]:
+            await query.edit_message_text(text="Это время уже занято. Пожалуйста, выберите другое время.")
+        else:
+            db["masters"][master].setdefault(date, {})[time] = {
+                "user_id": user.id,
+                "username": user.username,
+                "service": service  # Сохраняем выбранную услугу
+            }
+            save_database(db)
+
+            # Формируем время для уведомления
+            appointment_time = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+            context.job_queue.run_once(
+                notify_user,
+                appointment_time - timedelta(hours=1),
+                chat_id=user.id,
+                data={"master": master, "time": appointment_time}
+            )
+
+            # Отправляем уведомление админу
+            admin_message = (
+                f"Новый клиент:\n"
+                f"👤 Имя: {user.first_name}\n"
+                f"🆔 ID: {user.id}\n"
+                f"👨‍🔧 Мастер: {master}\n"
+                f"📅 Дата: {date}\n"
+                f"⏰ Время: {time}"
+            )
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=admin_message
+            )
+
+            # Кнопка возврата в меню
+            keyboard = [[InlineKeyboardButton("В меню", callback_data='menu')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                text=f"{user.first_name}, вы записаны к мастеру {master} на {time} {date}.",
+                reply_markup=reply_markup
+            )
+        return
+
+    # Проверка записи
+    elif query.data == 'check_booking':
+        user = update.effective_user
+        db = load_database()
+        booking_found = False
+
+        # Ищем запись пользователя
+        for master, dates in db["masters"].items():
+            for date, times in dates.items():
+                for time, details in times.items():
+                    if details["user_id"] == user.id:
+                        context.user_data['current_booking'] = {
+                            'master': master,
+                            'date': date,
+                            'time': time
+                        }
+
+                        # Формируем сообщение с кнопками
+                        keyboard = [
+                            [InlineKeyboardButton("Отменить запись", callback_data='cancel_booking')],
+                            [InlineKeyboardButton("В меню", callback_data='menu')]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await query.edit_message_text(
+                            text=f"Ваша запись: {time} {date} у мастера {master}",
+                            reply_markup=reply_markup
+                        )
+                        booking_found = True
+                        return
+
+        if not booking_found:
+            keyboard = [[InlineKeyboardButton("В меню", callback_data='menu')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(text="У вас нет активных записей.", reply_markup=reply_markup)
+        return
+
+    # Отмена записи
+    elif query.data == 'cancel_booking':
+        booking = context.user_data.get('current_booking')
+        if booking:
+            db = load_database()
+            try:
+                del db["masters"][booking['master']][booking['date']][booking['time']]
+                # Очищаем пустые даты
+                if not db["masters"][booking['master']][booking['date']]:
+                    del db["masters"][booking['master']][booking['date']]
+                save_database(db)
+
+                keyboard = [[InlineKeyboardButton("В меню", callback_data='menu')]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(text="Запись успешно отменена!", reply_markup=reply_markup)
+            except KeyError:
+                keyboard = [[InlineKeyboardButton("В меню", callback_data='menu')]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(text="Ошибка: запись не найдена", reply_markup=reply_markup)
+        else:
+            keyboard = [[InlineKeyboardButton("В меню", callback_data='menu')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(text="Нет активной записи для отмены", reply_markup=reply_markup)
+        return
+
+async def notify_user(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    await context.bot.send_message(
+        chat_id=job.chat_id,
+        text=f"Напоминание: через час ваш сеанс у мастера {job.data['master']}!"
+    )
+
+async def show_services_page(query, context):
+    services = load_services()
+    services_list = list(services.keys())
+    current_page = context.user_data.get('current_page', 0)
+    items_per_page = 5
+
+    # Вычисляем индексы для текущей страницы
+    start_index = current_page * items_per_page
+    end_index = start_index + items_per_page
+    current_services = services_list[start_index:end_index]
+
+    # Формируем сообщение
+    message = "Услуги и цены:\n\n"
+    for service_name in current_services:
+        message += f"🛎 {service_name}\n"
+
+    # Формируем кнопки для услуг
+    keyboard = []
+    for service_name in current_services:
+        keyboard.append([InlineKeyboardButton(service_name, callback_data=f'service_info_{service_name}')])
+
+    # Кнопки пагинации
+    pagination_buttons = []
+    if current_page > 0:
+        pagination_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data='prev_services_page'))
+    if end_index < len(services_list):
+        pagination_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data='next_services_page'))
+    if pagination_buttons:
+        keyboard.append(pagination_buttons)
+
+    # Кнопка возврата в меню
+    keyboard.append([InlineKeyboardButton("В меню", callback_data='menu')])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text=message, reply_markup=reply_markup)
+
+async def show_gallery_page(query, context):
+    gallery = load_gallery()
+    gallery_items = list(gallery.items())
+    current_page = context.user_data.get('current_gallery_page', 0)
+    items_per_page = 1
+
+    # Проверяем, есть ли фото в галерее
+    if not gallery_items:
+        await query.edit_message_text(text="Галерея пока пуста.")
+        return
+
+    current_item = gallery_items[current_page]
+
+    # Формируем сообщение
+    message = f"Галерея:\n\n🖼 {current_item[0]}"
+
+    # Формируем кнопки пагинации
+    keyboard = []
+    pagination_buttons = []
+    if current_page > 0:
+        pagination_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data='prev_gallery_page'))
+    if current_page < len(gallery_items) - 1:
+        pagination_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data='next_gallery_page'))
+    if pagination_buttons:
+        keyboard.append(pagination_buttons)
+
+    # Кнопка возврата в меню
+    keyboard.append([InlineKeyboardButton("В меню", callback_data='menu')])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.message.reply_photo(photo=current_item[1], caption=message, reply_markup=reply_markup)
+    await query.delete_message()  # Удаляем предыдущее сообщение с кнопками
+    
+async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != ADMIN_ID:
+        return
+
+    # Если админ отправил фото
+    if update.message.photo:
+        context.user_data['photo_id'] = update.message.photo[-1].file_id
+        await update.message.reply_text("Куда прикрепить картинку? Напишите 'услуга' или 'галерея'.")
+        return
+
+    # Если админ уже выбрал действие (услуга или галерея)
+    if 'admin_action' not in context.user_data:
+        text = update.message.text.lower()
+        if text == 'услуга':
+            context.user_data['admin_action'] = 'service'
+            await update.message.reply_text("Введите название услуги:")
+        elif text == 'галерея':
+            context.user_data['admin_action'] = 'gallery'
+            await update.message.reply_text("Введите название картинки:")
+        else:
+            await update.message.reply_text("Пожалуйста, напишите 'услуга' или 'галерея'.")
+        return
+
+    # Если админ ввел название услуги или картинки
+    if 'admin_action' in context.user_data:
+        if context.user_data['admin_action'] == 'service':
+            service_name = update.message.text
+            services = load_services()
+            if service_name in services:
+                services[service_name]['image'] = context.user_data['photo_id']
+                save_services(services)
+                await update.message.reply_text(f"Картинка привязана к услуге '{service_name}'.")
+            else:
+                await update.message.reply_text("Услуга не найдена.")
+            context.user_data.clear()
+
+        elif context.user_data['admin_action'] == 'gallery':
+            photo_name = update.message.text
+            gallery = load_gallery()
+            gallery[photo_name] = context.user_data['photo_id']
+            save_gallery(gallery)
+            await update.message.reply_text(f"Картинка '{photo_name}' добавлена в галерею.")
+            context.user_data.clear()
+
+# Обработка команды /say
+async def say(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    # Проверяем, что команду вызвал админ
+    if user.id != ADMIN_ID:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        return
+
+    # Получаем текст сообщения для рассылки
+    if not context.args:
+        await update.message.reply_text("Использование: /say <текст сообщения>")
+        return
+
+    message = " ".join(context.args)  # Объединяем аргументы в одно сообщение
+    users = load_users()
+
+    # Рассылаем сообщение всем пользователям
+    for user_id in users:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=message)
+        except Exception as e:
+            logger.error(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
+
+    await update.message.reply_text(f"Сообщение отправлено {len(users)} пользователям.")
+
+def main():
+    application = Application.builder().token("token").build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("ex", export_to_excel))  # Добавляем обработчик команды /ex
+    application.add_handler(CommandHandler("say", say))  # Добавляем обработчик команды /say
+    application.add_handler(CallbackQueryHandler(button))
+    application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, handle_admin_message))
+
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()
