@@ -1950,7 +1950,7 @@ def start(message):
 def trainings(message):
     markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add('Мини-игры', 'Анкета', 'Назад в главное меню')
-    bot.send_message(message.chat.id, "Выберите категорию: Мини-игры для развития компетенций, или пройти Тест Жизненный цикл.", reply_markup=markup)
+    bot.send_message(message.chat.id, "Выберите категорию: Мини-игры для развития компетенций, в которых будут разыграны разнообразные рабочие ситуации. Это нужно для того, чтобы вы, пройдя какую-либо мини-игру, задумались над своими ответами - а правильно ли вы бы поступили в конкретной ситуации? Также, вы можете пройти Анкету Жизненный цикл - задумайтесь над своей жизнью, и начните ее менять уже сегодня!", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.text == 'Резюме')
 def create_resume(message):
